@@ -248,7 +248,7 @@ class ContactGroupWidget extends StatelessWidget {
         text,
         style: TextStyle(
           fontSize: 10,
-          color: color.shade800,
+          color: color.withOpacity(0.9),
           fontWeight: FontWeight.w500,
         ),
       ),

@@ -14,51 +14,69 @@ class DuplicateGroupWidget extends StatelessWidget {
     required this.onSelectionChanged,
   }) : super(key: key);
 
+
+FileType _parseFileType(String? type) {
+  switch (type) {
+    case 'image':
+      return FileType.image;
+    case 'document':
+      return FileType.document;
+    case 'video':
+      return FileType.video;
+    case 'audio':
+      return FileType.audio;
+    default:
+      return FileType.document; // fallback to document
+  }
+}
+
   @override
   Widget build(BuildContext context) {
     // Sort group by modification date (newest first)
     final sortedGroup = List<DuplicateItem>.from(group)
-      ..sort((a, b) => b.lastModified.compareTo(a.lastModified));
+      ..sort((a, b) => b.lastModified!.compareTo(a.lastModified!));
+
 
     return Card(
-      margin: EdgeInsets.all(8),
-      child: ExpansionTile(
-        title: Row(
-          children: [
-            _getFileTypeIcon(group.first.fileType),
-            SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${group.length} duplicate files',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  Text(
-                    '${group.first.sizeFormatted} each • ${_getTotalWastedSpace()}',
-                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                  ),
-                ],
+  margin: EdgeInsets.all(8),
+  child: ExpansionTile(
+    title: Row(
+      children: [
+        _getFileTypeIcon(_parseFileType(group.first.fileType)),
+        SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${group.length} duplicate files',
+                style: TextStyle(fontWeight: FontWeight.bold),
               ),
-            ),
-            if (group.first.similarity < 1.0)
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.orange[100],
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  '${group.first.similarityPercentage} match',
-                  style: TextStyle(fontSize: 10, color: Colors.orange[800]),
-                ),
+              Text(
+                '${group.first.sizeFormatted} each • ${_getTotalWastedSpace()}',
+                style: TextStyle(color: Colors.grey[600], fontSize: 12),
               ),
-          ],
+            ],
+          ),
         ),
-        children: sortedGroup.map((item) => _buildFileItem(item, context)).toList(),
-      ),
-    );
+        if (group.first.similarity < 1.0)
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.orange[100],
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              '${group.first.similarityPercentage} match',
+              style: TextStyle(fontSize: 10, color: Colors.orange[800]),
+            ),
+          ),
+      ],
+    ),
+    children: sortedGroup.map((item) => _buildFileItem(item, context)).toList(),
+  ),
+);
+
   }
 
   Widget _buildFileItem(DuplicateItem item, BuildContext context) {
@@ -86,7 +104,7 @@ class DuplicateGroupWidget extends StatelessWidget {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(4),
                   child: Image.file(
-                    File(item.path),
+                    File(item.path!),
                     fit: BoxFit.cover,
                     errorBuilder: (context, error, stackTrace) => 
                         Icon(Icons.broken_image, size: 20),
@@ -94,11 +112,11 @@ class DuplicateGroupWidget extends StatelessWidget {
                 ),
               )
             else
-              _getFileTypeIcon(item.fileType),
+              _getFileTypeIcon(_parseFileType(item.fileType)),
           ],
         ),
         title: Text(
-          item.name,
+          item.name ?? '',
           style: TextStyle(fontSize: 14),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
@@ -107,7 +125,7 @@ class DuplicateGroupWidget extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              item.path,
+              item.path ?? '',
               style: TextStyle(fontSize: 12, color: Colors.grey[600]),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -116,7 +134,7 @@ class DuplicateGroupWidget extends StatelessWidget {
             Row(
               children: [
                 Text(
-                  'Modified: ${_formatDate(item.lastModified)}',
+                  'Modified: ${item.lastModified != null ? _formatDate(item.lastModified!) : 'Unknown'}',
                   style: TextStyle(fontSize: 11, color: Colors.grey[500]),
                 ),
                 if (isNewest) ...[
@@ -204,7 +222,7 @@ class DuplicateGroupWidget extends StatelessWidget {
   String _getTotalWastedSpace() {
     if (group.isEmpty) return '0 B wasted';
     
-    final wastedSize = group.first.size * (group.length - 1);
+    final wastedSize = (group.first.size ?? 0) * (group.length - 1);
     if (wastedSize < 1024) return '$wastedSize B wasted';
     if (wastedSize < 1024 * 1024) return '${(wastedSize / 1024).toStringAsFixed(1)} KB wasted';
     if (wastedSize < 1024 * 1024 * 1024) return '${(wastedSize / (1024 * 1024)).toStringAsFixed(1)} MB wasted';

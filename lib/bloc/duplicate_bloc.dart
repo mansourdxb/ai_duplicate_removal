@@ -4,8 +4,6 @@ import 'duplicate_state.dart';
 import '../services/file_service.dart';
 import '../services/duplicate_detector.dart';
 import '../services/contact_service.dart';
-import '../models/duplicate_item.dart';
-import '../models/duplicate_contact.dart';
 
 class DuplicateBloc extends Bloc<DuplicateEvent, DuplicateState> {
   final FileService fileService;
@@ -48,7 +46,8 @@ class DuplicateBloc extends Bloc<DuplicateEvent, DuplicateState> {
           if (contactDuplicates.isEmpty) {
             emit(DuplicateNoneFound());
           } else {
-            emit(DuplicateContactsDetected(duplicates: contactDuplicates));
+            emit(DuplicateContactsDetected(duplicates: [contactDuplicates]));
+
           }
           return;
         case ScanType.all:
@@ -66,8 +65,7 @@ class DuplicateBloc extends Bloc<DuplicateEvent, DuplicateState> {
           if (filePaths.isNotEmpty) {
             emit(DuplicateScanning(progress: 'Analyzing ${filePaths.length} files...'));
             final duplicates = await duplicateDetector.findDuplicates(
-              filePaths,
-              onProgress: (progress) {
+              filePaths, onProgress: (progress) {
                 emit(DuplicateScanning(progress: 'Files: $progress'));
               },
             );
@@ -75,13 +73,13 @@ class DuplicateBloc extends Bloc<DuplicateEvent, DuplicateState> {
             if (duplicates.isNotEmpty || contactDuplicates.isNotEmpty) {
               emit(DuplicateMixedDetected(
                 fileDuplicates: duplicates,
-                contactDuplicates: contactDuplicates,
+                contactDuplicates: [contactDuplicates],
               ));
             } else {
               emit(DuplicateNoneFound());
             }
           } else if (contactDuplicates.isNotEmpty) {
-            emit(DuplicateContactsDetected(duplicates: contactDuplicates));
+            emit(DuplicateContactsDetected(duplicates: [contactDuplicates]));
           } else {
             emit(DuplicateNoneFound());
           }
@@ -120,9 +118,11 @@ class DuplicateBloc extends Bloc<DuplicateEvent, DuplicateState> {
       
       int removedCount = 0;
       for (final item in event.itemsToRemove) {
-        final success = await fileService.deleteFile(item.path);
-        if (success) {
-          removedCount++;
+        if (item.path != null) {
+          final success = await fileService.deleteFile(item.path!);
+          if (success) {
+            removedCount++;
+          }
         }
       }
 

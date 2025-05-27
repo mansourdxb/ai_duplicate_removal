@@ -1,24 +1,32 @@
 import 'package:equatable/equatable.dart';
 import 'dart:io';
+import 'duplicate_contact.dart';
 
-class DuplicateItem extends Equatable {
-  final String path;
-  final String name;
-  final int size;
-  final DateTime lastModified;
-  final String hash;
-  final FileType fileType;
+class DuplicateItem {
+  final String? path;
+  final String? name;
+  final int? size;
+  final DateTime? lastModified;
+
+  final String? hash; // ✅ Add this line if needed
+  final List<DuplicateContact>? contacts;
   final double similarity;
+  final String? fileType; // ✅ add this line
+
 
   const DuplicateItem({
-    required this.path,
-    required this.name,
-    required this.size,
-    required this.lastModified,
-    required this.hash,
-    required this.fileType,
-    this.similarity = 1.0,
+    this.path,
+    this.name,
+    this.size,
+    this.lastModified,
+    this.hash, // ✅ Include here
+    this.contacts,
+    this.fileType, // ✅ include here
+    
+    required this.similarity,
   });
+
+
 
   factory DuplicateItem.fromFile(File file, String hash, {double similarity = 1.0}) {
     final stat = file.statSync();
@@ -30,7 +38,8 @@ class DuplicateItem extends Equatable {
       size: stat.size,
       lastModified: stat.modified,
       hash: hash,
-      fileType: _getFileType(extension),
+      fileType: _getFileType(extension).toString().split('.').last,
+
       similarity: similarity,
     );
   }
@@ -50,16 +59,27 @@ class DuplicateItem extends Equatable {
   }
 
   String get sizeFormatted {
-    if (size < 1024) return '$size B';
-    if (size < 1024 * 1024) return '${(size / 1024).toStringAsFixed(1)} KB';
-    if (size < 1024 * 1024 * 1024) return '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
-    return '${(size / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+    if (size == null) return 'Unknown';
+    if (size! < 1024) return '$size B';
+    if (size! < 1024 * 1024) return '${(size! / 1024).toStringAsFixed(1)} KB';
+    if (size! < 1024 * 1024 * 1024) return '${(size! / (1024 * 1024)).toStringAsFixed(1)} MB';
+    return '${(size! / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
   }
 
-  String get similarityPercentage => '${(similarity * 100).toStringAsFixed(1)}%';
+  // ✅ Add this getter inside the class
+  String get similarityPercentage =>
+      '${((similarity ?? 0.0) * 100).toStringAsFixed(1)}%';
 
   @override
-  List<Object> get props => [path, name, size, lastModified, hash, fileType, similarity];
+  List<Object> get props => [
+        path ?? '',
+        name ?? '',
+        size ?? 0,
+        lastModified ?? DateTime.fromMillisecondsSinceEpoch(0),
+        hash ?? '',
+        fileType ?? '',
+        similarity
+      ];
 }
 
 enum FileType {

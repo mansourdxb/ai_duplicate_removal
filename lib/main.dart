@@ -8,8 +8,10 @@ import 'services/duplicate_detector.dart';
 import 'services/contact_service.dart';
 
 void main() {
+  debugPrint('App starting...');
   runApp(MyApp());
 }
+
 
 class MyApp extends StatelessWidget {
   @override

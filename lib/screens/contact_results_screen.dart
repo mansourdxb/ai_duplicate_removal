@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import '../models/duplicate_contact.dart';
+import '../models/duplicate_contact.dart' as model;
 import '../services/contact_service.dart';
 import '../widgets/contact_group_widget.dart';
 
 class ContactResultsScreen extends StatefulWidget {
-  final List<List<DuplicateContact>> duplicates;
+  final List<List<model.DuplicateContact>> duplicates;
 
   const ContactResultsScreen({Key? key, required this.duplicates}) : super(key: key);
 
@@ -13,7 +13,7 @@ class ContactResultsScreen extends StatefulWidget {
 }
 
 class _ContactResultsScreenState extends State<ContactResultsScreen> {
-  final Set<DuplicateContact> selectedContacts = {};
+  final Set<model.DuplicateContact> selectedContacts = {};
   final ContactService contactService = ContactService();
   bool isProcessing = false;
   bool selectAll = false;
@@ -139,7 +139,7 @@ class _ContactResultsScreenState extends State<ContactResultsScreen> {
     );
   }
 
-  void _toggleContactSelection(DuplicateContact contact) {
+  void _toggleContactSelection(model.DuplicateContact contact) {
     setState(() {
       if (selectedContacts.contains(contact)) {
         selectedContacts.remove(contact);
@@ -171,7 +171,7 @@ class _ContactResultsScreenState extends State<ContactResultsScreen> {
       // Auto-select duplicates based on quality score
       for (var group in widget.duplicates) {
         // Sort by quality score (assuming higher is better)
-        var sortedGroup = List<DuplicateContact>.from(group);
+        var sortedGroup = List<model.DuplicateContact>.from(group);
         sortedGroup.sort((a, b) => b.qualityScore.compareTo(a.qualityScore));
         
         // Keep the best one, select others for removal
@@ -220,7 +220,7 @@ class _ContactResultsScreenState extends State<ContactResultsScreen> {
     });
 
     try {
-      await contactService.removeContacts(selectedContacts.toList());
+      await ContactService.removeContacts(selectedContacts.toList().cast<model.DuplicateContact>());
       
       setState(() {
         // Remove deleted contacts from groups

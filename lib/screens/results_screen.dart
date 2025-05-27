@@ -148,7 +148,11 @@ class _ResultsScreenState extends State<ResultsScreen> {
         // Select oldest files from each group (keep newest)
         for (final group in widget.duplicates) {
           final sortedGroup = List<DuplicateItem>.from(group)
-            ..sort((a, b) => b.lastModified.compareTo(a.lastModified));
+            ..sort((a, b) {
+              final aDate = a.lastModified ?? DateTime.fromMillisecondsSinceEpoch(0);
+              final bDate = b.lastModified ?? DateTime.fromMillisecondsSinceEpoch(0);
+              return bDate.compareTo(aDate);
+            });
           
           // Add all but the newest file
           for (int i = 1; i < sortedGroup.length; i++) {
@@ -196,14 +200,16 @@ class _ResultsScreenState extends State<ResultsScreen> {
       // Calculate size of duplicates (excluding one original)
       if (group.isNotEmpty) {
         final sizePerFile = group.first.size;
-        total += sizePerFile * (group.length - 1);
+        total += ((sizePerFile ?? 0) * (group.length - 1)).toInt();
+
+
       }
     }
     return total;
   }
 
   int _calculateSelectedSize() {
-    return selectedItems.fold(0, (sum, item) => sum + item.size);
+    return selectedItems.fold(0, (sum, item) => sum + (item.size ?? 0));
   }
 
   String _formatSize(int bytes) {
