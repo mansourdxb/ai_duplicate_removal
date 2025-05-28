@@ -4,6 +4,7 @@ import '../bloc/duplicate_bloc.dart';
 import '../bloc/duplicate_event.dart';
 import '../models/duplicate_item.dart';
 import '../widgets/duplicate_group_widget.dart';
+import  '../screens/smart_merge_preview_screen.dart';
 
 class ResultsScreen extends StatefulWidget {
   final List<List<DuplicateItem>> duplicates;
@@ -215,19 +216,42 @@ class _ResultsScreenState extends State<ResultsScreen> with TickerProviderStateM
                                 ),
                               ),
                             ),
-                            child: DuplicateGroupWidget(
-                              group: widget.duplicates[index],
-                              selectedItems: selectedItems,
-                              onSelectionChanged: (item, isSelected) {
-                                setState(() {
-                                  if (isSelected) {
-                                    selectedItems.add(item);
-                                  } else {
-                                    selectedItems.remove(item);
-                                  }
-                                });
-                              },
-                            ),
+                            child: GestureDetector(
+  onTap: () {
+    final group = widget.duplicates[index];
+    final isContactGroup = group.first.contacts != null;
+
+    if (isContactGroup) {
+      final contacts = group
+          .where((item) => item.contacts != null && item.contacts!.isNotEmpty)
+          .expand((item) => item.contacts!)
+          .toList();
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ContactMergePreviewScreen(
+            contacts: contacts,
+          ),
+        ),
+      );
+    }
+  },
+  child: DuplicateGroupWidget(
+    group: widget.duplicates[index],
+    selectedItems: selectedItems,
+    onSelectionChanged: (item, isSelected) {
+      setState(() {
+        if (isSelected) {
+          selectedItems.add(item);
+        } else {
+          selectedItems.remove(item);
+        }
+      });
+    },
+  ),
+),
+
                           ),
                         );
                       },
