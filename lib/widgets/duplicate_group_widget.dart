@@ -38,19 +38,19 @@ FileType _parseFileType(String? type) {
 
 
     return Card(
-  margin: EdgeInsets.all(8),
+  margin: const EdgeInsets.all(8),
   child: ExpansionTile(
     title: Row(
       children: [
         _getFileTypeIcon(_parseFileType(group.first.fileType)),
-        SizedBox(width: 8),
+        const SizedBox(width: 8),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 '${group.length} duplicate files',
-                style: TextStyle(fontWeight: FontWeight.bold),
+                style: const TextStyle(fontWeight: FontWeight.bold),
               ),
               Text(
                 '${group.first.sizeFormatted} each • ${_getTotalWastedSpace()}',
@@ -61,7 +61,7 @@ FileType _parseFileType(String? type) {
         ),
         if (group.first.similarity < 1.0)
           Container(
-            padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
             decoration: BoxDecoration(
               color: Colors.orange[100],
               borderRadius: BorderRadius.circular(4),
@@ -107,7 +107,7 @@ FileType _parseFileType(String? type) {
                     File(item.path!),
                     fit: BoxFit.cover,
                     errorBuilder: (context, error, stackTrace) => 
-                        Icon(Icons.broken_image, size: 20),
+                        const Icon(Icons.broken_image, size: 20),
                   ),
                 ),
               )
@@ -117,7 +117,7 @@ FileType _parseFileType(String? type) {
         ),
         title: Text(
           item.name ?? '',
-          style: TextStyle(fontSize: 14),
+          style: const TextStyle(fontSize: 14),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
@@ -130,7 +130,7 @@ FileType _parseFileType(String? type) {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-            SizedBox(height: 2),
+            const SizedBox(height: 2),
             Row(
               children: [
                 Text(
@@ -138,9 +138,9 @@ FileType _parseFileType(String? type) {
                   style: TextStyle(fontSize: 11, color: Colors.grey[500]),
                 ),
                 if (isNewest) ...[
-                  SizedBox(width: 8),
+                  const SizedBox(width: 8),
                   Container(
-                    padding: EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                     decoration: BoxDecoration(
                       color: Colors.green[100],
                       borderRadius: BorderRadius.circular(3),
@@ -165,7 +165,7 @@ FileType _parseFileType(String? type) {
           children: [
             Text(
               item.sizeFormatted,
-              style: TextStyle(fontWeight: FontWeight.w500),
+              style: const TextStyle(fontWeight: FontWeight.w500),
             ),
             if (item.similarity < 1.0)
               Text(

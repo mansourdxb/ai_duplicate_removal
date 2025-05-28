@@ -1,8 +1,6 @@
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../models/duplicate_contact.dart';
-import '../models/duplicate_item.dart';
-import 'dart:typed_data';
 import 'dart:io';
 
 /*class DuplicateContact {

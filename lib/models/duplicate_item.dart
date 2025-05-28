@@ -1,4 +1,3 @@
-import 'package:equatable/equatable.dart';
 import 'dart:io';
 import 'duplicate_contact.dart';
 

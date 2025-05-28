@@ -28,7 +28,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Duplicate Results'),
+        title: const Text('Duplicate Results'),
         actions: [
           IconButton(
             icon: Icon(selectAllMode ? Icons.deselect : Icons.select_all),
@@ -39,7 +39,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
       body: Column(
         children: [
           Container(
-            padding: EdgeInsets.all(16),
+            padding: const EdgeInsets.all(16),
             color: Colors.blue[50],
             child: Row(
               children: [
@@ -49,7 +49,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
                     children: [
                       Text(
                         'Found ${widget.duplicates.length} duplicate groups',
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
                         ),
@@ -94,8 +94,8 @@ class _ResultsScreenState extends State<ResultsScreen> {
       ),
       bottomNavigationBar: selectedItems.isNotEmpty
           ? Container(
-              padding: EdgeInsets.all(16),
-              decoration: BoxDecoration(
+              padding: const EdgeInsets.all(16),
+              decoration: const BoxDecoration(
                 color: Colors.white,
                 boxShadow: [
                   BoxShadow(
@@ -114,7 +114,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
                       children: [
                         Text(
                           '${selectedItems.length} files selected',
-                          style: TextStyle(fontWeight: FontWeight.bold),
+                          style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                         Text(
                           '${_formatSize(_calculateSelectedSize())} will be freed',
@@ -125,8 +125,8 @@ class _ResultsScreenState extends State<ResultsScreen> {
                   ),
                   ElevatedButton.icon(
                     onPressed: _removeSelected,
-                    icon: Icon(Icons.delete),
-                    label: Text('Remove'),
+                    icon: const Icon(Icons.delete),
+                    label: const Text('Remove'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
                       foregroundColor: Colors.white,
@@ -168,7 +168,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Confirm Deletion'),
+        title: const Text('Confirm Deletion'),
         content: Text(
           'Are you sure you want to delete ${selectedItems.length} files? '
           'This action cannot be undone.',
@@ -176,7 +176,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('Cancel'),
+            child: const Text('Cancel'),
           ),
           TextButton(
             onPressed: () {
@@ -186,8 +186,8 @@ class _ResultsScreenState extends State<ResultsScreen> {
               );
               Navigator.pop(context);
             },
-            child: Text('Delete'),
             style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: Text('Delete'),
           ),
         ],
       ),

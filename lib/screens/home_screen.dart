@@ -9,11 +9,13 @@ import 'results_screen.dart';
 import 'contact_results_screen.dart';
 
 class HomeScreen extends StatelessWidget {
+  const HomeScreen({super.key});
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Duplicate Removal AI'),
+        title: const Text('Duplicate Removal AI'),
         centerTitle: true,
       ),
       body: BlocListener<DuplicateBloc, DuplicateState>(
@@ -45,13 +47,13 @@ class HomeScreen extends StatelessWidget {
           }
         },
         child: Padding(
-          padding: EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(16.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Card(
                 child: Padding(
-                  padding: EdgeInsets.all(20.0),
+                  padding: const EdgeInsets.all(20.0),
                   child: Column(
                     children: [
                       Icon(
@@ -59,7 +61,7 @@ class HomeScreen extends StatelessWidget {
                         size: 64,
                         color: Colors.blue[600],
                       ),
-                      SizedBox(height: 16),
+                      const SizedBox(height: 16),
                       Text(
                         'AI-Powered Duplicate Detection',
                         style: Theme.of(context).textTheme.headlineSmall?.copyWith(
@@ -67,7 +69,7 @@ class HomeScreen extends StatelessWidget {
                         ),
                         textAlign: TextAlign.center,
                       ),
-                      SizedBox(height: 8),
+                      const SizedBox(height: 8),
                       Text(
                         'Find and remove duplicate files, images, and documents using advanced AI algorithms',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -79,7 +81,7 @@ class HomeScreen extends StatelessWidget {
                   ),
                 ),
               ),
-              SizedBox(height: 24),
+              const SizedBox(height: 24),
               _buildScanOption(
                 context,
                 icon: Icons.photo_library,
@@ -87,7 +89,7 @@ class HomeScreen extends StatelessWidget {
                 subtitle: 'Find duplicate photos and images',
                 onTap: () => _startScan(context, ScanType.images),
               ),
-              SizedBox(height: 12),
+              const SizedBox(height: 12),
               _buildScanOption(
                 context,
                 icon: Icons.contacts,
@@ -95,7 +97,7 @@ class HomeScreen extends StatelessWidget {
                 subtitle: 'Find duplicate contacts and phone numbers',
                 onTap: () => _startScan(context, ScanType.contacts),
               ),
-              SizedBox(height: 12),
+              const SizedBox(height: 12),
               _buildScanOption(
                 context,
                 icon: Icons.folder,
@@ -103,7 +105,7 @@ class HomeScreen extends StatelessWidget {
                 subtitle: 'Find duplicate documents and files',
                 onTap: () => _startScan(context, ScanType.files),
               ),
-              SizedBox(height: 12),
+              const SizedBox(height: 12),
               _buildScanOption(
                 context,
                 icon: Icons.select_all,
@@ -111,28 +113,28 @@ class HomeScreen extends StatelessWidget {
                 subtitle: 'Comprehensive scan of all file types',
                 onTap: () => _startScan(context, ScanType.all),
               ),
-              Spacer(),
+              const Spacer(),
               BlocBuilder<DuplicateBloc, DuplicateState>(
                 builder: (context, state) {
                   if (state is DuplicateScanning) {
                     return Card(
                       child: Padding(
-                        padding: EdgeInsets.all(16.0),
+                        padding: const EdgeInsets.all(16.0),
                         child: Column(
                           children: [
-                            CircularProgressIndicator(),
-                            SizedBox(height: 12),
-                            Text('Scanning for duplicates...'),
+                            const CircularProgressIndicator(),
+                            const SizedBox(height: 12),
+                            const Text('Scanning for duplicates...'),
                             Text(
                               state.progress,
-                              style: TextStyle(fontSize: 12, color: Colors.grey),
+                              style: const TextStyle(fontSize: 12, color: Colors.grey),
                             ),
                           ],
                         ),
                       ),
                     );
                   }
-                  return SizedBox.shrink();
+                  return const SizedBox.shrink();
                 },
               ),
             ],
@@ -157,10 +159,10 @@ class HomeScreen extends StatelessWidget {
         ),
         title: Text(
           title,
-          style: TextStyle(fontWeight: FontWeight.w600),
+          style: const TextStyle(fontWeight: FontWeight.w600),
         ),
         subtitle: Text(subtitle),
-        trailing: Icon(Icons.arrow_forward_ios),
+        trailing: const Icon(Icons.arrow_forward_ios),
         onTap: onTap,
       ),
     );
@@ -174,7 +176,7 @@ class HomeScreen extends StatelessWidget {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Duplicates Found'),
+        title: const Text('Duplicates Found'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -197,7 +199,7 @@ class HomeScreen extends StatelessWidget {
                   ),
                 );
               },
-              child: Text('View Files'),
+              child: const Text('View Files'),
             ),
           if (state.contactDuplicates.isNotEmpty)
             TextButton(
@@ -210,7 +212,7 @@ class HomeScreen extends StatelessWidget {
                   ),
                 );
               },
-              child: Text('View Contacts'),
+              child: const Text('View Contacts'),
             ),
         ],
       ),

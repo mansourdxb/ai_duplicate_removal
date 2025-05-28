@@ -105,23 +105,24 @@ class FileService {
   }
 
   Future<void> _scanDirectory(
-    Directory directory,
-    List<String> extensions,
-    List<String> filePaths,
-  ) async {
-    try {
-      await for (final entity in directory.list(recursive: true)) {
-        if (entity is File) {
-          final extension = entity.path.split('.').last.toLowerCase();
-          if (extensions.contains(extension)) {
-            filePaths.add(entity.path);
-          }
+  Directory directory,
+  List<String> extensions,
+  List<String> filePaths,
+) async {
+      try {
+    await for (final entity in directory.list(recursive: true)) {
+      if (entity is File) {
+        final extension = entity.path.split('.').last.toLowerCase();
+        if (extensions.contains(extension)) {
+          print("✅ Found image: ${entity.path}"); // <--- ADD THIS LINE
+          filePaths.add(entity.path);
         }
       }
-    } catch (e) {
-      print('Error scanning directory ${directory.path}: $e');
     }
+  } catch (e) {
+    print('❌ Error scanning directory ${directory.path}: $e');
   }
+}
 
   Future<bool> deleteFile(String filePath) async {
     try {
