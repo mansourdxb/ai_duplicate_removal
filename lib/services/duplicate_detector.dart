@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'dart:math';
+import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:image/image.dart' as img;
 import '../models/duplicate_item.dart';
@@ -85,6 +86,49 @@ class DuplicateDetector {
     final digest = sha256.convert(bytes);
     return digest.toString();
   }
+static Future<List<DuplicateItem>> findDuplicatesPlaceholder(
+  List<String> paths, {
+  Function(String)? onProgress,
+}) async {
+  final Map<String, List<String>> hashToPaths = {};
+  final List<DuplicateItem> duplicates = [];
+
+  for (final path in paths) {
+    try {
+      final file = File(path);
+      if (!await file.exists()) continue;
+
+      final bytes = await file.readAsBytes();
+      final hash = sha256.convert(bytes).toString();
+
+      hashToPaths.putIfAbsent(hash, () => []).add(path);
+      onProgress?.call('Processed: $path');
+    } catch (e) {
+      onProgress?.call('Error reading: $path');
+    }
+  }
+
+  for (final entry in hashToPaths.entries) {
+  if (entry.value.length > 1) {
+    final firstPath = entry.value.first;
+    final file = File(firstPath);
+    final stat = await file.stat();
+    final extension = file.path.split('.').last.toLowerCase();
+
+    duplicates.add(DuplicateItem(
+      paths: entry.value,
+      path: firstPath,
+      name: file.uri.pathSegments.last,
+      size: stat.size,
+      lastModified: stat.modified,
+      fileType: DuplicateItem.getFileType(extension).toString().split('.').last,
+      similarity: 1.0,
+    ));
+  }
+}
+
+  return duplicates;
+}
 
  static bool _isPhoneSimilar(DuplicateContact contact1, DuplicateContact contact2) {
   if (contact1.phoneNumbers == null || contact2.phoneNumbers == null) return false;

@@ -6,23 +6,23 @@ class DuplicateItem {
   final String? name;
   final int? size;
   final DateTime? lastModified;
-
-  final String? hash; // ✅ Add this line if needed
+  final String? hash;
   final List<DuplicateContact>? contacts;
+  final String? fileType;
   final double similarity;
-  final String? fileType; // ✅ add this line
+  final List<String>? paths; // added for duplicate file groups
 
 
-  const DuplicateItem({
+ const DuplicateItem({
     this.path,
     this.name,
     this.size,
     this.lastModified,
-    this.hash, // ✅ Include here
+    this.hash,
     this.contacts,
-    this.fileType, // ✅ include here
-    
+    this.fileType,
     required this.similarity,
+    this.paths,
   });
 
 
@@ -37,13 +37,13 @@ class DuplicateItem {
       size: stat.size,
       lastModified: stat.modified,
       hash: hash,
-      fileType: _getFileType(extension).toString().split('.').last,
+      fileType: getFileType(extension).toString().split('.').last,
 
       similarity: similarity,
     );
   }
 
-  static FileType _getFileType(String extension) {
+  static FileType getFileType(String extension) {
     final imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
     final documentExtensions = ['pdf', 'doc', 'docx', 'txt', 'rtf'];
     final videoExtensions = ['mp4', 'avi', 'mov', 'mkv', 'wmv'];

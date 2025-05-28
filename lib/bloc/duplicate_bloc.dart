@@ -27,13 +27,63 @@ class DuplicateBloc extends Bloc<DuplicateEvent, DuplicateState> {
       List<String> filePaths = [];
       
       switch (event.scanType) {
-        case ScanType.images:
-          emit(const DuplicateScanning(progress: 'Scanning images...'));
-          filePaths = await fileService.getImageFiles();
-          break;
+      case ScanType.images:
+  emit(const DuplicateScanning(progress: 'Scanning images...'));
+  filePaths = await fileService.getImageFiles();
+
+  if (filePaths.isEmpty) {
+    emit(const DuplicateError('No images found.'));
+    return;
+  }
+
+  bool hasDuplicates = true;
+  while (hasDuplicates) {
+    final duplicates = await DuplicateDetector.findDuplicatesPlaceholder(
+      filePaths,
+      onProgress: (msg) => emit(DuplicateScanning(progress: msg)),
+    );
+
+    if (duplicates.isEmpty) {
+      hasDuplicates = false;
+      emit(DuplicateNoneFound());
+    } else {
+      // Show results, then delete them automatically (or emit first and delete later)
+      emit(DuplicateDetected(duplicates: [duplicates]));
+
+      for (final item in duplicates) {
+        for (final path in item.paths ?? []) {
+          await fileService.deleteFile(path);
+        }
+      }
+
+      // Re-fetch file list after deletion
+      filePaths = await fileService.getImageFiles();
+    }
+  }
+  return;
+
+
         case ScanType.files:
-          emit(const DuplicateScanning(progress: 'Scanning files...'));
-          filePaths = await fileService.getDocumentFiles();
+  emit(const DuplicateScanning(progress: 'Scanning files...'));
+  filePaths = await fileService.getDocumentFiles();
+
+  if (filePaths.isEmpty) {
+    emit(const DuplicateError('No documents found.'));
+    return;
+  }
+
+  final duplicates = await DuplicateDetector.findDuplicatesPlaceholder(
+    filePaths,
+    onProgress: (msg) => emit(DuplicateScanning(progress: msg)),
+  );
+
+  if (duplicates.isEmpty) {
+    emit(DuplicateNoneFound());
+  } else {
+    emit(DuplicateDetected(duplicates: [duplicates]));
+  }
+  return;
+
           break;
         case ScanType.contacts:
           emit(const DuplicateScanning(progress: 'Scanning contacts...'));
@@ -98,8 +148,8 @@ class DuplicateBloc extends Bloc<DuplicateEvent, DuplicateState> {
 
       // Detect duplicates
       final duplicates = await duplicateDetector.findDuplicates(
-        filePaths,
-        onProgress: (progress) {
+        filePaths,onProgress: (progress) 
+        {
           emit(DuplicateScanning(progress: 'Processing: $progress'));
         },
       );

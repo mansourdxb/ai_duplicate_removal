@@ -34,7 +34,10 @@ FileType _parseFileType(String? type) {
   Widget build(BuildContext context) {
     // Sort group by modification date (newest first)
     final sortedGroup = List<DuplicateItem>.from(group)
-      ..sort((a, b) => b.lastModified!.compareTo(a.lastModified!));
+      ..sort((a, b) =>
+    (b.lastModified ?? DateTime.fromMillisecondsSinceEpoch(0))
+    .compareTo(a.lastModified ?? DateTime.fromMillisecondsSinceEpoch(0)));
+
 
 
     return Card(
@@ -104,11 +107,11 @@ FileType _parseFileType(String? type) {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(4),
                   child: Image.file(
-                    File(item.path!),
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => 
-                        const Icon(Icons.broken_image, size: 20),
-                  ),
+  File(item.paths?.first ?? ''),
+  fit: BoxFit.cover,
+  errorBuilder: (context, error, stackTrace) =>
+      const Icon(Icons.broken_image, size: 20),
+),
                 ),
               )
             else
