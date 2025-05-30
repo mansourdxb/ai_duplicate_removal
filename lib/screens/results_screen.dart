@@ -4,7 +4,7 @@ import '../bloc/duplicate_bloc.dart';
 import '../bloc/duplicate_event.dart';
 import '../models/duplicate_item.dart';
 import '../widgets/duplicate_group_widget.dart';
-import  '../screens/smart_merge_preview_screen.dart';
+import '../screens/smart_merge_preview_screen.dart';
 
 class ResultsScreen extends StatefulWidget {
   final List<List<DuplicateItem>> duplicates;
