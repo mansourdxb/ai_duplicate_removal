@@ -4,16 +4,10 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'smart_cleaning_screen.dart';
 import '../screens/similar_photos_screen.dart';
-import '../models/similar_photo_group.dart'; // Add this import
-import 'package:permission_handler/permission_handler.dart';
-import 'package:photo_manager/photo_manager.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:photo_manager/photo_manager.dart';
-import 'dart:io';
-import 'package:flutter/material.dart';
-// Add this line:
-import 'package:permission_handler/permission_handler.dart' show openAppSettings;
-
+import '../models/similar_photo_group.dart';
+import 'dart:typed_data';
+import '../models/similar_photo_group.dart';
+// Make sure SimilarPhotoGroup model exists and has the correct structure
 
 
 class HomeScreen extends StatefulWidget {
@@ -26,10 +20,9 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   late AnimationController _progressController;
   late Animation<double> _progressAnimation;
-    List<SimilarPhotoGroup> similarPhotoGroups = [];
+  List<SimilarPhotoGroup> similarPhotoGroups = [];
+  bool isLoading = false; // Add this for the refresh loading state
 
-
-  
   // State variables
   bool isScanning = false;
   bool hasStoragePermission = false;
@@ -60,6 +53,165 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _startSimilarPhotosAnalysis();
   }
 
+  // Add this method to your _HomeScreenState class
+  Future<void> _debugPhotoAnalysis() async {
+    print('=== HOME SCREEN PHOTO DEBUG ===');
+    
+    try {
+      // Request photo manager permission
+      final PermissionState ps = await PhotoManager.requestPermissionExtend();
+      if (!ps.hasAccess) {
+        print('❌ No photo access permission');
+        return;
+      }
+
+      // Get all image assets - SAME METHOD as your analysis
+      final List<AssetPathEntity> paths = await PhotoManager.getAssetPathList(
+        type: RequestType.image,
+        onlyAll: true,
+      );
+
+      if (paths.isNotEmpty) {
+        final AssetPathEntity allPhotos = paths.first;
+        final int totalCount = await allPhotos.assetCountAsync;
+        print('📊 Total photos from PhotoManager: $totalCount');
+        
+        // Get actual assets
+        final List<AssetEntity> assets = await allPhotos.getAssetListRange(
+          start: 0,
+          end: totalCount,
+        );
+        
+        print('📊 Actually loaded assets: ${assets.length}');
+        
+        // Analyze what types of photos we have
+        Map<String, int> typeCount = {};
+        Map<String, int> sizeCount = {};
+        int nullPathCount = 0;
+        int validPhotos = 0;
+        
+        for (var asset in assets) {
+          // Count by type
+          String type = asset.type.toString();
+          typeCount[type] = (typeCount[type] ?? 0) + 1;
+          
+          // Count by size category
+          int pixels = asset.width * asset.height;
+          String sizeCategory;
+          if (pixels < 100000) sizeCategory = 'tiny';
+          else if (pixels < 1000000) sizeCategory = 'small';
+          else if (pixels < 3000000) sizeCategory = 'medium';
+          else if (pixels < 8000000) sizeCategory = 'large';
+          else sizeCategory = 'huge';
+          
+          sizeCount[sizeCategory] = (sizeCount[sizeCategory] ?? 0) + 1;
+          
+          // Check for null paths
+          if (asset.relativePath == null) {
+            nullPathCount++;
+          } else {
+            validPhotos++;
+          }
+        }
+        
+        print('📊 Photo types: $typeCount');
+        print('📊 Size categories: $sizeCount');
+        print('📊 Photos with null path: $nullPathCount');
+        print('📊 Photos with valid path: $validPhotos');
+        
+        // Test your grouping logic
+        print('\n🔍 Testing grouping logic...');
+        List<SimilarPhotoGroup> groups = await _findAndGroupSimilarPhotos(assets);
+        
+        int totalPhotosInGroups = 0;
+        for (var group in groups) {
+          totalPhotosInGroups += group.photos.length;
+          print('   Group "${group.reason}": ${group.photos.length} photos');
+        }
+        
+        print('📊 Total photos in groups: $totalPhotosInGroups');
+        print('📊 Photos not in any group: ${assets.length - totalPhotosInGroups}');
+        
+        // ADD THIS NEW SECTION at the end:
+        print('\n🔍 Testing what gets passed to Similar Photos Screen...');
+        
+        if (similarPhotoGroups.isNotEmpty) {
+          int totalInGroups = 0;
+          for (var group in similarPhotoGroups) {
+            totalInGroups += group.photos.length;
+          }
+          print('📊 Photos in similarPhotoGroups: $totalInGroups');
+          print('📊 Photos in allSimilarPhotos: ${allSimilarPhotos.length}');
+          print('📊 Photos in similarPhotosCount: $similarPhotosCount');
+          
+          // Check if allSimilarPhotos matches the groups
+          Set<String> groupPhotoIds = {};
+          for (var group in similarPhotoGroups) {
+            for (var photo in group.photos) {
+              groupPhotoIds.add(photo.id);
+            }
+          }
+          
+          Set<String> allSimilarPhotoIds = allSimilarPhotos.map((p) => p.id).toSet();
+          
+          print('📊 Unique photos in groups: ${groupPhotoIds.length}');
+          print('📊 Unique photos in allSimilarPhotos: ${allSimilarPhotoIds.length}');
+          
+          // Find differences
+          final inGroupsNotInAll = groupPhotoIds.difference(allSimilarPhotoIds);
+          final inAllNotInGroups = allSimilarPhotoIds.difference(groupPhotoIds);
+          
+          if (inGroupsNotInAll.isNotEmpty) {
+            print('⚠️  Photos in groups but not in allSimilarPhotos: ${inGroupsNotInAll.length}');
+          }
+          if (inAllNotInGroups.isNotEmpty) {
+            print('⚠️  Photos in allSimilarPhotos but not in groups: ${inAllNotInGroups.length}');
+          }
+        }
+        
+      } else {
+        print('❌ No photo paths found');
+      }
+      
+    } catch (e) {
+      print('❌ Error in debug analysis: $e');
+    }
+    
+    print('=== END HOME SCREEN DEBUG ===\n');
+  }
+
+  // Add this method to your home screen class
+  // Replace your existing refreshPhotoData method with this:
+  Future<void> refreshPhotoData() async {
+    print('🔄 Refreshing photo data after deletion...');
+    
+    setState(() {
+      isAnalyzingSimilar = true; // Use your existing loading state
+    });
+    
+    try {
+      // Clear existing data
+      setState(() {
+        similarPhotoGroups.clear();
+        allSimilarPhotos.clear();
+        similarPhotoSamples.clear();
+        similarPhotosCount = 0;
+        similarPhotosSize = 0.0;
+        hasAnalyzedSimilar = false;
+      });
+      
+      // Re-run your existing analysis method
+      await _startSimilarPhotosAnalysis();
+      
+      print('✅ Photo data refreshed successfully');
+    } catch (e) {
+      print('❌ Error refreshing photo data: $e');
+      setState(() {
+        isAnalyzingSimilar = false;
+      });
+    }
+  }
+
   void _initializeAnimations() {
     _progressController = AnimationController(
       duration: const Duration(milliseconds: 1500),
@@ -78,84 +230,86 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     // Start animation
     _progressController.forward();
   }
-// Update your size calculation method:
-Future<double> _calculateEstimatedSize(List<AssetEntity> photos) async {
-  double totalSize = 0.0;
-  
-  for (var photo in photos) {
-    // Estimate file size based on resolution and format
-    int totalPixels = photo.width * photo.height;
-    double estimatedMB;
+
+  // Update your size calculation method:
+  Future<double> _calculateEstimatedSize(List<AssetEntity> photos) async {
+    double totalSize = 0.0;
     
-    // Estimate based on typical compression ratios
-    if (totalPixels < 1000000) {
-      estimatedMB = 0.5; // Low res photos
-    } else if (totalPixels < 3000000) {
-      estimatedMB = 1.5; // Medium res photos
-    } else if (totalPixels < 8000000) {
-      estimatedMB = 3.0; // High res photos
-    } else if (totalPixels < 20000000) {
-      estimatedMB = 6.0; // Very high res photos
-    } else {
-      estimatedMB = 12.0; // Ultra high res photos
-    }
-    
-    totalSize += estimatedMB;
-  }
-  
-  return totalSize / 1024; // Convert MB to GB
-}
-
-void _checkPermissions() async {
-  try {
-    final status = await Permission.storage.status;
-    if (mounted) {
-      setState(() {
-        hasStoragePermission = status.isGranted;
-      });
-    }
-  } catch (e) {
-    print('Error checking permissions: $e');
-    if (mounted) {
-      setState(() {
-        hasStoragePermission = false;
-      });
-    }
-  }
-}
-
-
- void _requestPermissions() async {
-  try {
-    final status = await Permission.storage.request();
-    if (mounted) {
-      setState(() {
-        hasStoragePermission = status.isGranted;
-      });
+    for (var photo in photos) {
+      // Estimate file size based on resolution and format
+      int totalPixels = photo.width * photo.height;
+      double estimatedMB;
       
-      // If permission granted, restart similar photos analysis
-      if (status.isGranted && !hasAnalyzedSimilar) {
-        _startSimilarPhotosAnalysis();
+      // Estimate based on typical compression ratios
+      if (totalPixels < 1000000) {
+        estimatedMB = 0.5; // Low res photos
+      } else if (totalPixels < 3000000) {
+        estimatedMB = 1.5; // Medium res photos
+      } else if (totalPixels < 8000000) {
+        estimatedMB = 3.0; // High res photos
+      } else if (totalPixels < 20000000) {
+        estimatedMB = 6.0; // Very high res photos
+      } else {
+        estimatedMB = 12.0; // Ultra high res photos
+      }
+      
+      totalSize += estimatedMB;
+    }
+    
+    return totalSize / 1024; // Convert MB to GB
+  }
+
+  void _checkPermissions() async {
+    try {
+      final status = await Permission.storage.status;
+      if (mounted) {
+        setState(() {
+          hasStoragePermission = status.isGranted;
+        });
+      }
+    } catch (e) {
+      print('Error checking permissions: $e');
+      if (mounted) {
+        setState(() {
+          hasStoragePermission = false;
+        });
       }
     }
-  } catch (e) {
-    print('Error requesting permissions: $e');
-    if (mounted) {
-      setState(() {
-        hasStoragePermission = false;
-      });
+  }
+
+  void _requestPermissions() async {
+    try {
+      final status = await Permission.storage.request();
+      if (mounted) {
+        setState(() {
+          hasStoragePermission = status.isGranted;
+        });
+        
+        // If permission granted, restart similar photos analysis
+        if (status.isGranted && !hasAnalyzedSimilar) {
+          _startSimilarPhotosAnalysis();
+        }
+      }
+    } catch (e) {
+      print('Error requesting permissions: $e');
+      if (mounted) {
+        setState(() {
+          hasStoragePermission = false;
+        });
+      }
     }
   }
-}
-
 
   // UPDATED: Real similar photos analysis method with grouping
-  void _startSimilarPhotosAnalysis() async {
+  Future<void> _startSimilarPhotosAnalysis() async {
     if (hasAnalyzedSimilar) return;
     
     setState(() {
       isAnalyzingSimilar = true;
     });
+
+    // ADD THIS DEBUG CALL
+    await _debugPhotoAnalysis();
 
     try {
       // Request photo manager permission
@@ -180,6 +334,9 @@ void _checkPermissions() async {
           end: await allPhotos.assetCountAsync,
         );
 
+        // ADD THIS ADDITIONAL DEBUG
+        print('🏠 HOME: About to analyze ${assets.length} photos');
+
         // REAL ANALYSIS: Find actually similar photos and group them
         List<SimilarPhotoGroup> groups = await _findAndGroupSimilarPhotos(assets);
         
@@ -189,9 +346,8 @@ void _checkPermissions() async {
           allSimilarPhotosList.addAll(group.photos);
         }
         
-    // Calculate total size of similar photos using the improved method
-double totalSizeGB = await _calculateEstimatedSize(allSimilarPhotosList);
-
+        // Calculate total size of similar photos using the improved method
+        double totalSizeGB = await _calculateEstimatedSize(allSimilarPhotosList);
         
         // Get sample photos for display (first 3 similar photos)
         List<AssetEntity> samples = allSimilarPhotosList.take(3).toList();
@@ -224,7 +380,7 @@ double totalSizeGB = await _calculateEstimatedSize(allSimilarPhotosList);
   // IMPROVED: Method to find and group similar photos
 Future<List<SimilarPhotoGroup>> _findAndGroupSimilarPhotos(List<AssetEntity> allPhotos) async {
   List<SimilarPhotoGroup> groups = [];
-  Set<String> processedPhotoIds = {}; // Track processed photos to avoid duplicates
+  Set<String> processedPhotoIds = {};
   
   try {
     print('Starting analysis of ${allPhotos.length} photos');
@@ -248,11 +404,37 @@ Future<List<SimilarPhotoGroup>> _findAndGroupSimilarPhotos(List<AssetEntity> all
     int groupIndex = 0;
     for (var group in burstGroups.values) {
       if (group.length >= 2) {
+        // Calculate total size for this group
+        double totalSize = 0.0;
+        for (var photo in group) {
+          int totalPixels = photo.width * photo.height;
+          double estimatedMB;
+          if (totalPixels < 1000000) {
+            estimatedMB = 0.5;
+          } else if (totalPixels < 3000000) {
+            estimatedMB = 1.5;
+          } else if (totalPixels < 8000000) {
+            estimatedMB = 3.0;
+          } else if (totalPixels < 20000000) {
+            estimatedMB = 6.0;
+          } else {
+            estimatedMB = 12.0;
+          }
+          totalSize += estimatedMB;
+        }
+        totalSize = totalSize / 1024; // Convert MB to GB
+
         groups.add(SimilarPhotoGroup(
-          groupId: 'burst_$groupIndex',
           photos: group,
-          reason: 'Burst photos taken within 2 minutes',
+          bestPhotoIndex: 0,
+          selectedIndices: group.length > 1
+              ? Set.from(Iterable.generate(group.length - 1, (i) => i + 1))
+              : <int>{},
+          reason: 'Burst photos taken within 2 seconds',
+          groupId: 'burst_$groupIndex',
+          totalSize: totalSize,
         ));
+
         // Mark these photos as processed
         for (var photo in group) {
           processedPhotoIds.add(photo.id);
@@ -286,12 +468,38 @@ Future<List<SimilarPhotoGroup>> _findAndGroupSimilarPhotos(List<AssetEntity> all
     
     // Add aspect ratio groups
     for (var entry in dimensionGroups.entries) {
-      if (entry.value.length >= 10) { // Increased threshold since we have many photos
+      if (entry.value.length >= 10) {
+        // Calculate total size for this group
+        double totalSize = 0.0;
+        for (var photo in entry.value) {
+          int totalPixels = photo.width * photo.height;
+          double estimatedMB;
+          if (totalPixels < 1000000) {
+            estimatedMB = 0.5;
+          } else if (totalPixels < 3000000) {
+            estimatedMB = 1.5;
+          } else if (totalPixels < 8000000) {
+            estimatedMB = 3.0;
+          } else if (totalPixels < 20000000) {
+            estimatedMB = 6.0;
+          } else {
+            estimatedMB = 12.0;
+          }
+          totalSize += estimatedMB;
+        }
+        totalSize = totalSize / 1024; // Convert MB to GB
+
         groups.add(SimilarPhotoGroup(
-          groupId: 'ratio_${entry.key}',
           photos: entry.value,
-          reason: 'Similar aspect ratio (${entry.key})',
+          bestPhotoIndex: 0,
+          selectedIndices: entry.value.length > 1
+              ? Set.from(Iterable.generate(entry.value.length - 1, (i) => i + 1))
+              : <int>{},
+          reason: 'Aspect ratio group: ${entry.key}',
+          groupId: 'aspect_${entry.key}',
+          totalSize: totalSize,
         ));
+
         // Mark these photos as processed
         for (var photo in entry.value) {
           processedPhotoIds.add(photo.id);
@@ -324,11 +532,37 @@ Future<List<SimilarPhotoGroup>> _findAndGroupSimilarPhotos(List<AssetEntity> all
     }
     
     if (screenshots.length >= 2) {
+      // Calculate total size for this group
+      double totalSize = 0.0;
+      for (var photo in screenshots) {
+        int totalPixels = photo.width * photo.height;
+        double estimatedMB;
+        if (totalPixels < 1000000) {
+          estimatedMB = 0.5;
+        } else if (totalPixels < 3000000) {
+          estimatedMB = 1.5;
+        } else if (totalPixels < 8000000) {
+          estimatedMB = 3.0;
+        } else if (totalPixels < 20000000) {
+          estimatedMB = 6.0;
+        } else {
+          estimatedMB = 12.0;
+        }
+        totalSize += estimatedMB;
+      }
+      totalSize = totalSize / 1024; // Convert MB to GB
+
       groups.add(SimilarPhotoGroup(
-        groupId: 'screenshots',
         photos: screenshots,
-        reason: 'Likely screenshots',
+        bestPhotoIndex: 0,
+        selectedIndices: screenshots.length > 1
+            ? Set.from(Iterable.generate(screenshots.length - 1, (i) => i + 1))
+            : <int>{},
+        reason: 'Screenshots group',
+        groupId: 'screenshots',
+        totalSize: totalSize,
       ));
+
       // Mark these photos as processed
       for (var photo in screenshots) {
         processedPhotoIds.add(photo.id);
@@ -350,12 +584,38 @@ Future<List<SimilarPhotoGroup>> _findAndGroupSimilarPhotos(List<AssetEntity> all
     }
     
     for (var entry in dayGroups.entries) {
-      if (entry.value.length >= 5) { // Increased threshold
+      if (entry.value.length >= 5) {
+        // Calculate total size for this group
+        double totalSize = 0.0;
+        for (var photo in entry.value) {
+          int totalPixels = photo.width * photo.height;
+          double estimatedMB;
+          if (totalPixels < 1000000) {
+            estimatedMB = 0.5;
+          } else if (totalPixels < 3000000) {
+            estimatedMB = 1.5;
+          } else if (totalPixels < 8000000) {
+            estimatedMB = 3.0;
+          } else if (totalPixels < 20000000) {
+            estimatedMB = 6.0;
+          } else {
+            estimatedMB = 12.0;
+          }
+          totalSize += estimatedMB;
+        }
+        totalSize = totalSize / 1024; // Convert MB to GB
+
         groups.add(SimilarPhotoGroup(
-          groupId: 'sameday_${entry.key}',
           photos: entry.value,
-          reason: 'Photos from ${entry.key}',
+          bestPhotoIndex: 0,
+          selectedIndices: entry.value.length > 1
+              ? Set.from(Iterable.generate(entry.value.length - 1, (i) => i + 1))
+              : <int>{},
+          reason: 'Photos taken on the same day: ${entry.key}',
+          groupId: 'sameday_${entry.key}',
+          totalSize: totalSize,
         ));
+
         // Mark these photos as processed
         for (var photo in entry.value) {
           processedPhotoIds.add(photo.id);
@@ -370,7 +630,6 @@ Future<List<SimilarPhotoGroup>> _findAndGroupSimilarPhotos(List<AssetEntity> all
       if (!processedPhotoIds.contains(photo.id)) {
         int totalPixels = photo.width * photo.height;
         String resolutionKey;
-        
         if (totalPixels < 1000000) {
           resolutionKey = "low_res";
         } else if (totalPixels < 3000000) {
@@ -391,12 +650,42 @@ Future<List<SimilarPhotoGroup>> _findAndGroupSimilarPhotos(List<AssetEntity> all
     }
     
     for (var entry in resolutionGroups.entries) {
-      if (entry.value.length >= 8) { // Increased threshold
+      if (entry.value.length >= 8) {
+        // Calculate total size for this group
+        double totalSize = 0.0;
+        for (var photo in entry.value) {
+          int totalPixels = photo.width * photo.height;
+          double estimatedMB;
+          if (totalPixels < 1000000) {
+            estimatedMB = 0.5;
+          } else if (totalPixels < 3000000) {
+            estimatedMB = 1.5;
+          } else if (totalPixels < 8000000) {
+            estimatedMB = 3.0;
+          } else if (totalPixels < 20000000) {
+            estimatedMB = 6.0;
+          } else {
+            estimatedMB = 12.0;
+          }
+          totalSize += estimatedMB;
+        }
+        totalSize = totalSize / 1024; // Convert MB to GB
+
         groups.add(SimilarPhotoGroup(
-          groupId: 'resolution_${entry.key}',
           photos: entry.value,
-          reason: 'Similar resolution (${entry.key.replaceAll('_', ' ')})',
+          bestPhotoIndex: 0,
+          selectedIndices: entry.value.length > 1
+              ? Set.from(Iterable.generate(entry.value.length - 1, (i) => i + 1))
+              : <int>{},
+          reason: 'Same resolution: ${entry.key}',
+          groupId: 'resolution_${entry.key}',
+          totalSize: totalSize,
         ));
+
+        // Mark these photos as processed
+        for (var photo in entry.value) {
+          processedPhotoIds.add(photo.id);
+        }
       }
     }
     
@@ -413,9 +702,6 @@ Future<List<SimilarPhotoGroup>> _findAndGroupSimilarPhotos(List<AssetEntity> all
     return [];
   }
 }
-
-
-
   // Keep your existing _findSimilarPhotos method for backward compatibility
   Future<List<AssetEntity>> _findSimilarPhotos(List<AssetEntity> allPhotos) async {
     // Your existing implementation...
@@ -809,21 +1095,43 @@ Future<List<SimilarPhotoGroup>> _findAndGroupSimilarPhotos(List<AssetEntity> all
   // UPDATED: Enhanced Similar Photos Card with navigation to grouped photos
   Widget _buildSimilarPhotosCard() {
     return GestureDetector(
-      onTap: () {
-        if (hasAnalyzedSimilar && similarPhotosCount > 0) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => SimilarPhotosScreen(
-                similarPhotos: allSimilarPhotos, // Pass ALL similar photos
-                totalCount: similarPhotosCount,
-                totalSize: similarPhotosSize,
-                preGroupedPhotos: similarPhotoGroups, // Pass pre-grouped data
-              ),
-            ),
-          );
-        }
-      },
+     onTap: () async {
+  if (hasAnalyzedSimilar && similarPhotosCount > 0) {
+    // Add this safety check:
+    if (similarPhotoGroups.isEmpty) {
+      print("❌ No groups available - run analysis first");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please analyze photos first'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    
+    // Navigate with correct variable names
+   // ✅ FIXED: Pass SimilarPhotoGroup list directly
+final result = await Navigator.push(
+  context,
+  MaterialPageRoute(
+    builder: (context) => SimilarPhotosScreen(
+      preGroupedPhotos: similarPhotoGroups, // Direct pass - no conversion needed
+      totalCount: similarPhotosCount,       
+      totalSize: similarPhotosSize,
+    ),
+  ),
+);
+
+    
+    // Handle return result
+    if (result == true) {
+      print('🔄 Photos were deleted, refreshing home screen data...');
+      await refreshPhotoData();
+    }
+  }
+},
+
+      
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -932,114 +1240,68 @@ Future<List<SimilarPhotoGroup>> _findAndGroupSimilarPhotos(List<AssetEntity> all
     );
   }
 
-  // Content widget showing chart and photos
   Widget _buildSimilarPhotosContent() {
     return Padding(
       padding: const EdgeInsets.all(8.0),
       child: Row(
         children: [
-          // LEFT: Chart/Graph area
-          Container(
-            width: 80,
-            height: 64,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: Colors.grey[200]!),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Simple chart representation
-                Container(
-                  width: 40,
-                  height: 20,
-                  child: CustomPaint(
-                    painter: SimpleChartPainter(),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${similarPhotoGroups.length}', // Show number of groups
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          
-          const SizedBox(width: 12),
-          
-          // RIGHT: Photo thumbnails
-          Expanded(
-            child: Row(
-              children: [
-                for (int i = 0; i < 3 && i < similarPhotoSamples.length; i++) ...[
-                  Expanded(
-                    child: Container(
-                      height: 64,
-                      margin: EdgeInsets.only(right: i < 2 ? 4 : 0),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(6),
-                        color: Colors.grey[300],
+          // Show sample photos
+          ...similarPhotoSamples.take(3).map((photo) => 
+            Container(
+              width: 60,
+              height: 60,
+              margin: const EdgeInsets.only(right: 8),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                color: Colors.grey[300],
+              ),
+              child: FutureBuilder<Uint8List?>(
+                future: photo.thumbnailData,
+                builder: (context, snapshot) {
+                  if (snapshot.hasData && snapshot.data != null) {
+                    return ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.memory(
+                        snapshot.data!,
+                        fit: BoxFit.cover,
+                        width: 60,
+                        height: 60,
                       ),
-                      child: FutureBuilder<Widget>(
-                        future: _buildPhotoThumbnail(similarPhotoSamples[i]),
-                        builder: (context, snapshot) {
-                          if (snapshot.hasData) {
-                            return ClipRRect(
-                              borderRadius: BorderRadius.circular(6),
-                              child: snapshot.data!,
-                            );
-                          }
-                          return Container(
-                            decoration: BoxDecoration(
-                              color: Colors.grey[300],
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: const Icon(
-                              Icons.image,
-                              color: Colors.grey,
-                              size: 24,
-                            ),
-                          );
-                        },
-                      ),
+                    );
+                  }
+                  return Container(
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                  ),
-                ],
-              ],
+                  );
+                },
+              ),
             ),
-          ),
+          ).toList(),
+          
+          // Show count if more photos
+          if (similarPhotosCount > 3)
+            Container(
+              width: 60,
+              height: 60,
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.withOpacity(0.3)),
+              ),
+              child: Center(
+                child: Text(
+                  '+${similarPhotosCount - 3}',
+                  style: const TextStyle(
+                    color: Colors.blue,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ),
         ],
-      ),
-    );
-  }
-
-  // Build photo thumbnail
-  Future<Widget> _buildPhotoThumbnail(AssetEntity asset) async {
-    final thumbnail = await asset.thumbnailDataWithSize(
-      const ThumbnailSize(200, 200),
-    );
-    
-    if (thumbnail != null) {
-      return Image.memory(
-        thumbnail,
-        fit: BoxFit.cover,
-        width: double.infinity,
-        height: double.infinity,
-      );
-    }
-    
-    return Container(
-      color: Colors.grey[300],
-      child: const Icon(
-        Icons.image,
-        color: Colors.grey,
-        size: 24,
       ),
     );
   }
@@ -1072,7 +1334,6 @@ Future<List<SimilarPhotoGroup>> _findAndGroupSimilarPhotos(List<AssetEntity> all
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                
                       title,
                       style: const TextStyle(
                         fontSize: 16,
@@ -1107,9 +1368,7 @@ Future<List<SimilarPhotoGroup>> _findAndGroupSimilarPhotos(List<AssetEntity> all
               ),
             ],
           ),
-          
           const SizedBox(height: 12),
-          
           Container(
             height: 60,
             width: double.infinity,
@@ -1171,87 +1430,54 @@ Future<List<SimilarPhotoGroup>> _findAndGroupSimilarPhotos(List<AssetEntity> all
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 20),
-        Row(
-  children: [
-    Expanded(
-      child: OutlinedButton(
-        onPressed: () async {
-          // Try to open app settings
-          try {
-            await openAppSettings();
-          } catch (e) {
-            print('Error opening app settings: $e');
-            // Fallback: show a dialog with instructions
-            showDialog(
-              context: context,
-              builder: (context) => AlertDialog(
-                title: const Text('Permission Required'),
-                content: const Text(
-                  'Please go to Settings > Apps > AI Cleaner > Permissions and enable Storage permission.'
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('OK'),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () async {
+                    try {
+                      await Permission.storage.request();
+                    } catch (e) {
+                      print('Error requesting permission: $e');
+                    }
+                  },
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: Colors.grey[300]!),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
-                ],
+                  child: const Text(
+                    'Open Settings',
+                    style: TextStyle(
+                      color: Colors.black54,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
               ),
-            );
-          }
-        },
-        style: OutlinedButton.styleFrom(
-          side: BorderSide(color: Colors.grey[300]!),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _requestPermissions,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: const Text(
+                    'Grant Permission',
+                    style: TextStyle(fontSize: 14),
+                  ),
+                ),
+              ),
+            ],
           ),
-          padding: const EdgeInsets.symmetric(vertical: 12),
-        ),
-        child: const Text(
-          'Open Settings',
-          style: TextStyle(
-            color: Colors.black54,
-            fontSize: 14,
-          ),
-        ),
-      ),
-    ),
-    const SizedBox(width: 12),
-    Expanded(
-      child: ElevatedButton(
-        onPressed: () async {
-          // Request permission again
-          final status = await Permission.storage.request();
-          if (mounted) {
-            setState(() {
-              hasStoragePermission = status.isGranted;
-            });
-            
-            if (status.isGranted) {
-              // Restart the analysis if permission was granted
-              _startSimilarPhotosAnalysis();
-            }
-          }
-        },
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.blue,
-          foregroundColor: Colors.white,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          padding: const EdgeInsets.symmetric(vertical: 12),
-        ),
-        child: const Text(
-          'Grant Permission',
-          style: TextStyle(
-            fontSize: 14,
-          ),
-        ),
-      ),
-    ),
-  ],
-),
-
         ],
       ),
     );
@@ -1312,7 +1538,7 @@ Future<List<SimilarPhotoGroup>> _findAndGroupSimilarPhotos(List<AssetEntity> all
   }
 }
 
-// Simple chart painter for the graph
+// Simple chart painter for the graph - MOVED OUTSIDE THE CLASS
 class SimpleChartPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {

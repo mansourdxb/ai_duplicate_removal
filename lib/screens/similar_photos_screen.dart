@@ -2,6 +2,13 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:photo_manager/photo_manager.dart';
 import '../models/similar_photo_group.dart';
+import 'dart:typed_data';
+import 'dart:math' as math; // ✅ Add this import
+import 'package:flutter/material.dart';
+import 'package:photo_manager/photo_manager.dart';
+import '../models/similar_photo_group.dart';
+import 'dart:async'; // ✅ ADD THIS if not already present
+
 class PhotoData {
   final AssetEntity asset;
   final Uint8List thumbnail;
@@ -15,7 +22,6 @@ class PhotoData {
     required this.size,
   });
 }
-
 
 enum PhotoSortOption {
   newest,
@@ -52,424 +58,958 @@ extension PhotoSortOptionExtension on PhotoSortOption {
   }
 }
 
-// Add this data structure to similar_photos_screen.dart as well
-
-
 class SimilarPhotosScreen extends StatefulWidget {
-  final List<AssetEntity> similarPhotos;
+  // ✅ FIXED: Change from List<List<PhotoModel>> to List<SimilarPhotoGroup>
+  final List<SimilarPhotoGroup> preGroupedPhotos;
   final int totalCount;
   final double totalSize;
-  final List<SimilarPhotoGroup>? preGroupedPhotos; // Add this
 
- const SimilarPhotosScreen({
+  const SimilarPhotosScreen({
     Key? key,
-    required this.similarPhotos,
+    required this.preGroupedPhotos, // Now accepts correct type
     required this.totalCount,
     required this.totalSize,
-    this.preGroupedPhotos, // Add this
   }) : super(key: key);
 
   @override
-  State<SimilarPhotosScreen> createState() => _SimilarPhotosScreenState();
+  _SimilarPhotosScreenState createState() => _SimilarPhotosScreenState();
 }
+
+
 
 class _SimilarPhotosScreenState extends State<SimilarPhotosScreen> {
   List<SimilarPhotoGroup> photoGroups = [];
   bool isLoading = true;
   int selectedCount = 0;
   double selectedSize = 0.0;
-  int processedCount = 0;
   PhotoSortOption _currentSortOption = PhotoSortOption.newest;
+  bool isCalculatingSize = false;
+  bool _isSelectingAll = false; // ✅ Add this flag
+   // ✅ ADD THIS LINE HERE
+  Timer? _debounceTimer;
+  Timer? _sizeCalculationTimer;
+  // ✅ Cache photo sizes to avoid repeated calculations
+  final Map<String, double> _photoSizeCache = {};
 
-  @override
-void initState() {
-  super.initState();
-  
-  // If we have pre-grouped photos, use them directly
-  if (widget.preGroupedPhotos != null && widget.preGroupedPhotos!.isNotEmpty) {
-    _usePreGroupedPhotos();
-  } else {
-    // Fallback to original grouping method
-    _groupSimilarPhotos();
-  }
-}
 
-void _usePreGroupedPhotos() {
-  setState(() {
-    photoGroups = List.from(widget.preGroupedPhotos!);
-    isLoading = false;
-    _calculateInitialSelection();
-    _applySorting();
+// ✅ ADD THIS METHOD
+// ✅ FIND AND UPDATE YOUR _debouncedSetState() METHOD
+void _debouncedSetState(VoidCallback fn) {
+  _debounceTimer?.cancel();
+  _debounceTimer = Timer(const Duration(milliseconds: 16), () { // ✅ Reduced from 50ms to 16ms
+    if (mounted) {
+      setState(fn);
+    }
   });
 }
-  void _groupSimilarPhotos() async {
-    setState(() {
-      isLoading = true;
-      processedCount = 0;
-    });
 
-    try {
-      // Limit processing to first 500 photos for performance
-      final photosToProcess = widget.similarPhotos.take(500).toList();
-      
-      List<PhotoData> photoDataList = [];
-      
-      // Process photos in batches of 20 for better performance
-      const batchSize = 20;
-      for (int i = 0; i < photosToProcess.length; i += batchSize) {
-        final endIndex = (i + batchSize < photosToProcess.length) 
-            ? i + batchSize 
-            : photosToProcess.length;
-        
-        final batch = photosToProcess.sublist(i, endIndex);
-        
-        // Process batch
-        for (int j = 0; j < batch.length; j++) {
-          final asset = batch[j];
-          try {
-            final thumbnail = await asset.thumbnailDataWithSize(
-              const ThumbnailSize(150, 150), // Smaller thumbnail for performance
-              quality: 60, // Lower quality for performance
-            );
-            
-            if (thumbnail != null) {
-              photoDataList.add(PhotoData(
-                asset: asset,
-                thumbnail: thumbnail,
-                index: i + j,
-                size: 3.0, // Use default size to avoid file system calls
-              ));
-            }
-          } catch (e) {
-            print('Error processing photo ${i + j}: $e');
-            // Continue with next photo
-          }
-        }
-        
-        // Update progress
-        setState(() {
-          processedCount = i + batch.length;
-        });
-        
-        // Add small delay to prevent UI blocking
-        await Future.delayed(const Duration(milliseconds: 10));
+
+  // ✅ FIXED: Updated debug method with correct parameter names
+  Future<void> _debugSimilarPhotosScreen() async {
+    print('=== SIMILAR PHOTOS SCREEN DEBUG ===');
+    print('📊 Pre-grouped photos provided: ${widget.preGroupedPhotos.length} groups');
+    print('📊 Total count parameter: ${widget.totalCount}');
+    print('📊 Total size parameter: ${widget.totalSize}MB');
+    
+    if (widget.preGroupedPhotos.isNotEmpty) {
+      int totalPhotosInPreGroups = 0;
+      for (var group in widget.preGroupedPhotos) {
+        totalPhotosInPreGroups += group.photos.length;
+        //print('   Pre-group "${group.reason}": ${group.photos.length} photos');
       }
-      
-      // Create simple groups based on date
-      final groups = await _createSimpleGroups(photoDataList);
-      
-      setState(() {
-        photoGroups = groups;
-        isLoading = false;
-        _calculateInitialSelection();
-        setState(() {
-  photoGroups = groups;
-  isLoading = false;
-  _calculateInitialSelection();
-  _applySorting(); // ADD THIS LINE
-});
+      print('📊 Total photos in pre-groups: $totalPhotosInPreGroups');
+      print('✅ Using pre-grouped photos - NO RE-ANALYSIS NEEDED');
+    } else {
+      print('❌ ERROR: No pre-grouped photos available');
+    }
+    print('=== END SIMILAR PHOTOS SCREEN DEBUG ===\n');
+  }
 
-      });
-      
-    } catch (e) {
-      print('Error grouping photos: $e');
-      setState(() {
-        isLoading = false;
-      });
+// ✅ Add this method to calculate group sizes
+Future<void> _calculateGroupSizes() async {
+  print('🔄 Calculating group sizes...');
+  
+  for (int i = 0; i < photoGroups.length; i++) {
+    final group = photoGroups[i];
+    double totalSize = 0.0;
+    
+    for (var photo in group.photos) {
+      totalSize += await _getPhotoSizeFromAsset(photo);
+    }
+    
+    group.totalSize = totalSize;
+    
+    // Update UI progressively for better UX
+    if (mounted) {
+      setState(() {});
+    }
+    
+    // Small delay to prevent UI blocking
+    await Future.delayed(const Duration(milliseconds: 5));
+  }
+  
+  print('✅ Group sizes calculated');
+}
+
+
+ @override
+  void initState() {
+    super.initState();
+    _debugSimilarPhotosScreen();
+    
+    if (widget.preGroupedPhotos.isNotEmpty) {
+      print('✅ Using pre-grouped photos from Home screen');
+      _usePreGroupedPhotos();
+    } else {
+      print('❌ CRITICAL ERROR: No pre-grouped photos provided!');
+      _showErrorAndReturn();
     }
   }
-Future<int> _findBestPhotoIndex(List<AssetEntity> photos) async {
-  if (photos.length <= 1) return 0;
+
+
+  // **NEW: Show error instead of falling back to re-analysis**
+ void _showErrorAndReturn() {
+  setState(() {
+    isLoading = false;
+  });
   
-  int bestIndex = 0;
-  double bestScore = 0;
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Error'),
+        content: const Text(
+          'No photo groups available. Please go back to the home screen and try again.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop(); // Close dialog
+              Navigator.of(context).pop(); // Go back to home
+            },
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  });
+}
+
+void _usePreGroupedPhotos() async {
+  print('🚀 _usePreGroupedPhotos() called - NO RE-ANALYSIS');
   
-  for (int i = 0; i < photos.length; i++) {
-    double score = 0;
-    final photo = photos[i];
+  setState(() {
+    photoGroups = List.from(widget.preGroupedPhotos);
+    isLoading = false;
+  });
+  
+  // ✅ Calculate group sizes in background
+  _calculateGroupSizes();
+  
+  // ✅ Calculate initial selection without blocking UI
+  _calculateInitialSelectionOptimized();
+  _applySorting();
+  
+  print('✅ Pre-grouped photos loaded instantly');
+}
+
+void _calculateInitialSelectionOptimized() async {
+  print('🔄 _calculateInitialSelection() called');
+  
+  int tempCount = 0;
+  
+  // First pass: select photos quickly
+  for (var group in photoGroups) {
+    group.selectedIndices.clear();
     
-    // 1. Resolution score (most important factor)
-    final width = photo.width ?? 0;
-    final height = photo.height ?? 0;
-    final totalPixels = width * height;
-    score += totalPixels / 100000.0; // Normalize to reasonable range
-    
-    // 2. Aspect ratio preference
-    if (width > 0 && height > 0) {
-      final aspectRatio = width / height;
-      // Prefer standard ratios
-      if (aspectRatio >= 0.7 && aspectRatio <= 1.5) {
-        score += 50; // Good aspect ratio bonus
+    for (int i = 0; i < group.photos.length; i++) {
+      if (i != group.bestPhotoIndex) {
+        group.selectedIndices.add(i);
+        tempCount++;
       }
-      // Penalize very wide or very tall images
-      if (aspectRatio < 0.3 || aspectRatio > 3.0) {
-        score -= 30;
+    }
+  }
+  
+  setState(() {
+    selectedCount = tempCount;
+    selectedSize = 0.0; // Will be calculated in background
+  });
+  
+  // Calculate sizes in background
+  _calculateInitialSizes();
+  
+  print('📊 Initial selection: $tempCount photos selected');
+}
+
+// ✅ FIXED: Safe initial size calculation
+// ✅ FIXED: Safe initial size calculation
+// ✅ UPDATE THIS METHOD
+// ✅ REPLACE YOUR EXISTING _calculateInitialSizes() METHOD
+void _calculateInitialSizes() async {
+  double tempSize = 0.0;
+  
+  List<SimilarPhotoGroup> groupsSnapshot = List.from(photoGroups);
+  
+  for (var group in groupsSnapshot) {
+    Set<int> selectedSnapshot = Set.from(group.selectedIndices);
+    
+    for (int index in selectedSnapshot) {
+      if (index < group.photos.length) {
+        tempSize += await _getPhotoSizeFromAsset(group.photos[index]);
+      }
+    }
+  }
+  
+  // ✅ UPDATE UI ONLY ONCE at the end
+  if (mounted) {
+    setState(() {
+      selectedSize = tempSize;
+    });
+  }
+}
+
+
+
+  // **REMOVE THIS METHOD - We don't want fallback re-analysis**
+  // void _groupSimilarPhotos() async { ... } // DELETE THIS ENTIRE METHOD
+
+  Future<int> _findBestPhotoIndex(List<AssetEntity> photos) async {
+    if (photos.length <= 1) return 0;
+    
+    int bestIndex = 0;
+    double bestScore = 0;
+    
+    for (int i = 0; i < photos.length; i++) {
+      double score = 0;
+      final photo = photos[i];
+      
+      // 1. Resolution score (most important factor)
+      final width = photo.width ?? 0;
+      final height = photo.height ?? 0;
+      final totalPixels = width * height;
+      score += totalPixels / 100000.0; // Normalize to reasonable range
+      
+      // 2. Aspect ratio preference
+      if (width > 0 && height > 0) {
+        final aspectRatio = width / height;
+        // Prefer standard ratios
+        if (aspectRatio >= 0.7 && aspectRatio <= 1.5) {
+          score += 50; // Good aspect ratio bonus
+        }
+        // Penalize very wide or very tall images
+        if (aspectRatio < 0.3 || aspectRatio > 3.0) {
+          score -= 30;
+        }
+      }
+      
+      // 3. File size consideration (but not too heavy)
+      try {
+        final file = await photo.file;
+        if (file != null) {
+          final sizeInBytes = await file.length();
+          final sizeInMB = sizeInBytes / (1024 * 1024);
+          
+          // Sweet spot: 2-8MB is usually good quality
+          if (sizeInMB >= 2 && sizeInMB <= 8) {
+            score += 30;
+          } else if (sizeInMB > 8) {
+            score += 20; // Large files are good but not always better
+          } else if (sizeInMB < 0.5) {
+            score -= 20; // Very small files are often low quality
+          }
+        }
+      } catch (e) {
+        // If we can't get file info, no penalty
+      }
+      
+      // 4. Slight preference for newer photos (tie-breaker)
+      final date = photo.createDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final hoursSinceEpoch = date.millisecondsSinceEpoch / (1000 * 60 * 60);
+      score += hoursSinceEpoch * 0.0001; // Very small bonus for recency
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = i;
       }
     }
     
-    // 3. File size consideration (but not too heavy)
+    return bestIndex;
+  }
+
+  // **REMOVE THIS METHOD - Not needed anymore**
+  // Future<List<SimilarPhotoGroup>> _createSimpleGroups(List<PhotoData> photoDataList) async { ... }
+
+  // Add this helper method
+  // ✅ Optimized photo size calculation with caching
+  Future<double> _getPhotoSizeFromAsset(AssetEntity asset) async {
+    // Check cache first
+    if (_photoSizeCache.containsKey(asset.id)) {
+      return _photoSizeCache[asset.id]!;
+    }
+    
     try {
-      final file = await photo.file;
-      if (file != null) {
+      final file = await asset.file;
+      if (file != null && await file.exists()) {
         final sizeInBytes = await file.length();
         final sizeInMB = sizeInBytes / (1024 * 1024);
         
-        // Sweet spot: 2-8MB is usually good quality
-        if (sizeInMB >= 2 && sizeInMB <= 8) {
-          score += 30;
-        } else if (sizeInMB > 8) {
-          score += 20; // Large files are good but not always better
-        } else if (sizeInMB < 0.5) {
-          score -= 20; // Very small files are often low quality
-        }
+        // Cache the result
+        _photoSizeCache[asset.id] = sizeInMB;
+        return sizeInMB;
+      } else {
+        _photoSizeCache[asset.id] = 0.0;
+        return 0.0;
       }
     } catch (e) {
-      // If we can't get file info, no penalty
-    }
-    
-    // 4. Slight preference for newer photos (tie-breaker)
-    final date = photo.createDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
-    final hoursSinceEpoch = date.millisecondsSinceEpoch / (1000 * 60 * 60);
-    score += hoursSinceEpoch * 0.0001; // Very small bonus for recency
-    
-    if (score > bestScore) {
-      bestScore = score;
-      bestIndex = i;
+      _photoSizeCache[asset.id] = 0.0;
+      return 0.0;
     }
   }
-  
-  return bestIndex;
-}
 
-  Future<List<SimilarPhotoGroup>> _createSimpleGroups(List<PhotoData> photoDataList) async {
-  List<SimilarPhotoGroup> groups = [];
-  
-  // Group by month for simplicity and performance
-  Map<String, List<PhotoData>> monthGroups = {};
-  
-  for (var photo in photoDataList) {
-    final date = photo.asset.createDateTime ?? DateTime.now();
-    final monthKey = "${date.year}-${date.month.toString().padLeft(2, '0')}";
-    
-    if (!monthGroups.containsKey(monthKey)) {
-      monthGroups[monthKey] = [];
-    }
-    monthGroups[monthKey]!.add(photo);
-  }
-  
-  // Create groups from month groups
-  for (var entry in monthGroups.entries) {
-    if (entry.value.length >= 2) {
-      // Sort by date within the group
-      entry.value.sort((a, b) {
-        final dateA = a.asset.createDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
-        final dateB = b.asset.createDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
-        return dateB.compareTo(dateA);
-      });
-      
-      // Split large groups into smaller ones
-      const maxGroupSize = 8;
-      for (int i = 0; i < entry.value.length; i += maxGroupSize) {
-        final endIndex = (i + maxGroupSize < entry.value.length) 
-            ? i + maxGroupSize 
-            : entry.value.length;
-        
-        final groupPhotos = entry.value.sublist(i, endIndex);
-        final totalSize = groupPhotos.length * 3.0;
-        
-        // Find the best photo in this group
-        final photoAssets = groupPhotos.map((p) => p.asset).toList();
-        final bestIndex = await _findBestPhotoIndex(photoAssets); // USE THE NEW FUNCTION
-        
-        groups.add(SimilarPhotoGroup(
-    groupId: 'group_${groups.length}', // Add this required parameter
-    photos: photoAssets, // Your existing photos list
-    reason: 'Similar photos detected', // Add this required parameter
-    bestPhotoIndex: 0, // Add this (defaults to first photo)
-    totalSize: 0.0, // Add this (you can calculate actual size later)
-  ));
-      }
-    }
-  }
-  
-  // Sort groups by size (largest first)
-  groups.sort((a, b) => b.totalSize.compareTo(a.totalSize));
-  
-  // Limit to 20 groups for performance
-  if (groups.length > 20) {
-    groups = groups.take(20).toList();
-  }
-  
-  return groups;
-}
-
-void _calculateInitialSelection() {
-  selectedCount = 0;
-  selectedSize = 0.0;
-  
-  for (var group in photoGroups) {
-    // Simple approach: select all photos except the first one
-    for (int i = 1; i < group.photos.length; i++) {
-      // Add your selection logic here
-      selectedCount++;
-      // Calculate size if needed
-    }
-  }
-}
-
-
-  void _togglePhotoSelection(int groupIndex, int photoIndex) {
-    setState(() {
-      final group = photoGroups[groupIndex];
-      final photoSize = group.totalSize / group.photos.length;
-      
-      if (group.selectedIndices.contains(photoIndex)) {
-        group.selectedIndices.remove(photoIndex);
-        selectedCount--;
-        selectedSize -= photoSize;
+  Future<double> _getPhotoSize(SimilarPhotoGroup group, int photoIndex) async {
+    try {
+      final photo = group.photos[photoIndex];
+      final file = await photo.file;
+      if (file != null && await file.exists()) {
+        final sizeInBytes = await file.length();
+        return sizeInBytes / (1024 * 1024); // Convert to MB
       } else {
-        group.selectedIndices.add(photoIndex);
-        selectedCount++;
-        selectedSize += photoSize;
+        // Photo no longer exists (was deleted)
+        print('⚠️ Photo ${photo.id} no longer exists - was deleted');
+        return 0.0; // Return 0 for deleted photos
       }
-    });
+    } catch (e) {
+      // Photo was deleted or doesn't exist
+      print('⚠️ Photo no longer accessible: $e');
+      return 0.0; // Return 0 for inaccessible photos
+    }
   }
-
-  void _selectAll() {
+  // ✅ FIXED: Prevent concurrent modifications in toggle
+// ✅ REPLACE YOUR EXISTING _togglePhotoSelection() METHOD
+void _togglePhotoSelection(int groupIndex, int photoIndex) {
+  final group = photoGroups[groupIndex];
+  
+  // ✅ Batch state changes - no intermediate setState calls
+  bool wasSelected = group.selectedIndices.contains(photoIndex);
+  int countChange = 0;
+  
+  if (wasSelected) {
+    group.selectedIndices.remove(photoIndex);
+    countChange = -1;
+  } else {
+    // ✅ Prevent selecting the best photo
+    if (photoIndex != group.bestPhotoIndex) {
+      group.selectedIndices.add(photoIndex);
+      countChange = 1;
+    }
+  }
+  
+  // ✅ SINGLE setState call with all changes
+  if (countChange != 0) {
     setState(() {
-      selectedCount = 0;
-      selectedSize = 0.0;
-      
-      for (var group in photoGroups) {
-        group.selectedIndices.clear();
-        for (int i = 0; i < group.photos.length; i++) {
-          group.selectedIndices.add(i);
-          selectedCount++;
-          selectedSize += (group.totalSize / group.photos.length);
+      selectedCount += countChange;
+    });
+    
+    // ✅ Calculate size in background WITHOUT UI updates during scroll
+    _updateSizeInBackgroundSilent();
+  }
+}
+// ✅ ADD THIS NEW METHOD - NO UI UPDATES DURING SCROLL
+void _updateSizeInBackgroundSilent() async {
+  // ✅ Debounce to prevent excessive calculations during rapid scrolling
+  _sizeCalculationTimer?.cancel();
+  _sizeCalculationTimer = Timer(const Duration(milliseconds: 300), () async {
+    double tempSize = 0.0;
+    
+    for (var group in photoGroups) {
+      for (int index in Set.from(group.selectedIndices)) {
+        if (index < group.photos.length) {
+          tempSize += await _getPhotoSizeFromAsset(group.photos[index]);
         }
       }
-    });
-  }
-
-  void _deselectAll() {
-    setState(() {
-      selectedCount = 0;
-      selectedSize = 0.0;
-      
-      for (var group in photoGroups) {
-        group.selectedIndices.clear();
-      }
-    });
-  }
-
-  void _deselectGroup(int groupIndex) {
-    setState(() {
-      final group = photoGroups[groupIndex];
-      final photoSize = group.totalSize / group.photos.length;
-      
-      selectedCount -= group.selectedIndices.length;
-      selectedSize -= (group.selectedIndices.length * photoSize);
-      
-      group.selectedIndices.clear();
-    });
-  }
-
-void _showSortOptions() {
-  showModalBottomSheet(
-    context: context,
-    backgroundColor: Colors.transparent,
-    isScrollControlled: true,
-    builder: (context) => SortOptionsBottomSheet(
-      currentOption: _currentSortOption,
-      onOptionSelected: (option) {
-        setState(() {
-          _currentSortOption = option;
-        });
-        _applySorting();
-      },
-    ),
-  );
-}
-
-void _applySorting() {
-  setState(() {
-    switch (_currentSortOption) {
-      case PhotoSortOption.newest:
-        _sortGroupsByNewest();
-        break;
-      case PhotoSortOption.oldest:
-        _sortGroupsByOldest();
-        break;
-      case PhotoSortOption.largest:
-        _sortGroupsByLargest();
-        break;
-      case PhotoSortOption.smallest:
-        _sortGroupsBySmallest();
-        break;
+    }
+    
+    // ✅ Update UI only once when calculation is complete
+    if (mounted) {
+      setState(() {
+        selectedSize = tempSize;
+      });
     }
   });
 }
 
-void _sortGroupsByNewest() {
-  photoGroups.sort((a, b) {
-    final dateA = a.photos.first.createDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
-    final dateB = b.photos.first.createDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
-    return dateB.compareTo(dateA); // Newest first
+
+// ✅ NEW: Safe size update method
+// ✅ UPDATE THIS METHOD
+void _updateSizeForPhotoSafe(AssetEntity photo, bool isSelected) async {
+  try {
+    final size = await _getPhotoSizeFromAsset(photo);
+    
+    if (mounted) {
+      // ✅ CHANGED: Use debounced setState
+      _debouncedSetState(() {
+        if (isSelected) {
+          selectedSize += size;
+        } else {
+          selectedSize = math.max(0, selectedSize - size);
+        }
+      });
+    }
+  } catch (e) {
+    print('Error updating photo size: $e');
+  }
+}
+
+
+void _updateSizeForPhoto(AssetEntity photo, bool isSelected) async {
+  final size = await _getPhotoSizeFromAsset(photo);
+  
+  if (mounted) {
+    setState(() {
+      if (isSelected) {
+        selectedSize += size;
+      } else {
+        selectedSize -= size;
+      }
+    });
+  }
+}
+// ✅ FIXED: Prevent concurrent selectAll operations
+// ✅ FIXED: Only select photos that should be selectable
+// ✅ REPLACE YOUR EXISTING _selectAll() METHOD WITH THIS
+Future<void> _selectAll() async {
+  if (_isSelectingAll) return;
+  
+  setState(() {
+    _isSelectingAll = true;
   });
   
-  // Also sort photos within each group
+  try {
+    int tempSelectedCount = 0;
+    
+    // ✅ Create a snapshot to prevent concurrent modification
+    List<SimilarPhotoGroup> groupsSnapshot = List.from(photoGroups);
+    
+    for (var group in groupsSnapshot) {
+      group.selectedIndices.clear();
+      
+      // ✅ CRITICAL: Only select photos that are NOT the best photo
+      for (int i = 0; i < group.photos.length; i++) {
+        if (i != group.bestPhotoIndex) { // ✅ Skip best photo
+          group.selectedIndices.add(i);
+          tempSelectedCount++;
+        }
+      }
+    }
+    
+    // ✅ UPDATE UI ONLY ONCE with final counts
+    setState(() {
+      selectedCount = tempSelectedCount;
+      selectedSize = 0.0; // Will be calculated in background
+    });
+    
+    // ✅ Calculate sizes in background WITHOUT UI updates
+    _calculateSizesInBackgroundSilent();
+    
+  } finally {
+    setState(() {
+      _isSelectingAll = false;
+    });
+  }
+}
+// ✅ ADD THIS NEW METHOD
+void _calculateSizesInBackgroundSilent() async {
+  double tempSize = 0.0;
+  
   for (var group in photoGroups) {
-    group.photos.sort((a, b) {
-      final dateA = a.createDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final dateB = b.createDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
-      return dateB.compareTo(dateA);
+    for (int index in Set.from(group.selectedIndices)) {
+      tempSize += await _getPhotoSizeFromAsset(group.photos[index]);
+      
+      // ✅ NO UI UPDATES during calculation - only at the end
+    }
+  }
+  
+  // ✅ UPDATE UI ONLY ONCE with final size
+  if (mounted) {
+    setState(() {
+      selectedSize = tempSize;
     });
   }
 }
 
-void _sortGroupsByOldest() {
-  photoGroups.sort((a, b) {
-    final dateA = a.photos.first.createDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
-    final dateB = b.photos.first.createDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
-    return dateA.compareTo(dateB); // Oldest first
+// ✅ NEW: Get total selectable photos (excluding best photos)
+// ✅ REPLACE YOUR EXISTING METHOD WITH THIS
+int _getTotalSelectablePhotos() {
+  int total = 0;
+  for (var group in photoGroups) {
+    // Count all photos except the best one in each group
+    total += group.photos.length - 1; // -1 because we don't select the best photo
+  }
+  return total;
+}
+
+
+// ✅ Keep existing method for total count
+// ✅ YOUR EXISTING METHOD SHOULD LOOK LIKE THIS
+int _getTotalPhotos() {
+  int total = 0;
+  for (var group in photoGroups) {
+    total += group.photos.length; // Count ALL photos
+  }
+  return total;
+}
+
+
+
+// ✅ Calculate sizes without blocking UI
+// ✅ FIXED: Safe iteration over selectedIndices
+// ✅ REPLACE YOUR EXISTING METHOD WITH THIS
+// ✅ REPLACE YOUR EXISTING _calculateSizesInBackground() METHOD
+void _calculateSizesInBackground() async {
+  double tempSize = 0.0;
+  int processedPhotos = 0;
+  int totalPhotos = selectedCount;
+  
+  for (var group in photoGroups) {
+    for (int index in Set.from(group.selectedIndices)) {
+      tempSize += await _getPhotoSizeFromAsset(group.photos[index]);
+      processedPhotos++;
+      
+      // ✅ REDUCED: Update UI only every 20 photos instead of every few photos
+      if (processedPhotos % 20 == 0 || processedPhotos == totalPhotos) {
+        _debouncedSetState(() {
+          selectedSize = tempSize;
+        });
+      }
+    }
+  }
+  
+  // ✅ Final update to ensure accuracy
+  _debouncedSetState(() {
+    selectedSize = tempSize;
+  });
+}
+
+
+
+ void _deselectGroup(int groupIndex) {
+  final group = photoGroups[groupIndex];
+  
+  setState(() {
+    selectedCount -= group.selectedIndices.length;
+    group.selectedIndices.clear();
   });
   
-  // Also sort photos within each group
-  for (var group in photoGroups) {
-    group.photos.sort((a, b) {
-      final dateA = a.createDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final dateB = b.createDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
-      return dateA.compareTo(dateB);
-    });
-  }
+  // Recalculate size in background
+  _recalculateSelectionOptimized();
 }
 
-void _sortGroupsByLargest() {
-  photoGroups.sort((a, b) => b.totalSize.compareTo(a.totalSize)); // Largest first
+// ✅ REPLACE YOUR EXISTING _deselectAll() METHOD
+void _deselectAll() {
+  // ✅ SINGLE setState call - no background calculations needed
+  setState(() {
+    selectedCount = 0;
+    selectedSize = 0.0;
+    
+    for (var group in photoGroups) {
+      group.selectedIndices.clear();
+    }
+  });
+}
+
+
+// ✅ FIXED: Safe recalculation
+void _recalculateSelectionOptimized() async {
+  double tempSize = 0.0;
   
-  // Sort photos within each group by resolution
-  for (var group in photoGroups) {
-    group.photos.sort((a, b) {
-      final sizeA = (a.width ?? 0) * (a.height ?? 0);
-      final sizeB = (b.width ?? 0) * (b.height ?? 0);
-      return sizeB.compareTo(sizeA);
+  // ✅ Create snapshots to prevent concurrent modification
+  for (var group in List.from(photoGroups)) {
+    for (int index in Set.from(group.selectedIndices)) {
+      if (index < group.photos.length) {
+        tempSize += await _getPhotoSizeFromAsset(group.photos[index]);
+      }
+    }
+  }
+  
+  if (mounted) {
+    setState(() {
+      selectedSize = tempSize;
     });
   }
 }
 
+// ✅ NEW: Safe operation wrapper
+Future<void> _performSafeSetOperation(Function operation) async {
+  try {
+    await operation();
+  } catch (e) {
+    if (e.toString().contains('Concurrent modification')) {
+      print('⚠️ Concurrent modification detected, retrying...');
+      // Retry once after a small delay
+      await Future.delayed(const Duration(milliseconds: 50));
+      try {
+        await operation();
+      } catch (retryError) {
+        print('❌ Retry failed: $retryError');
+      }
+    } else {
+      print('❌ Operation error: $e');
+    }
+  }
+}
+
+  Future<void> _recalculateSelection() async {
+    selectedCount = 0;
+    selectedSize = 0.0;
+    
+    for (var group in photoGroups) {
+      selectedCount += group.selectedIndices.length;
+      for (int index in group.selectedIndices) {
+        selectedSize += await _getPhotoSize(group, index);
+      }
+    }
+  }
+
+  
+
+  void _showSortOptions() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => SortOptionsBottomSheet(
+        currentOption: _currentSortOption,
+ onOptionSelected: (option) {
+  // ✅ SIMPLE setState - no debouncing needed
+  setState(() {
+    _currentSortOption = option;
+  });
+  _applySorting(); // This will now be instant
+},
+      ),
+    );
+  }
+
+// ✅ REPLACE YOUR EXISTING _applySorting() METHOD WITH THIS
+// ✅ REPLACE YOUR EXISTING _applySorting() METHOD
+void _applySorting() {
+  // ✅ NO setState() wrapper here!
+  switch (_currentSortOption) {
+    case PhotoSortOption.newest:
+      _sortGroupsByNewest();
+      break;
+    case PhotoSortOption.oldest:
+      _sortGroupsByOldest();
+      break;
+    case PhotoSortOption.largest:
+      _sortGroupsByLargest();
+      break;
+    case PhotoSortOption.smallest:
+      _sortGroupsBySmallest();
+      break;
+  }
+}
+
+
+
+// ✅ REPLACE YOUR EXISTING _sortGroupsBySmallest() METHOD
+// ✅ REPLACE YOUR EXISTING _sortGroupsBySmallest() METHOD
 void _sortGroupsBySmallest() {
-  photoGroups.sort((a, b) => a.totalSize.compareTo(b.totalSize)); // Smallest first
+  // ✅ NO setState() calls during sorting!
+  photoGroups.sort((a, b) => a.totalSize.compareTo(b.totalSize));
   
-  // Sort photos within each group by resolution
+  // Sort photos within each group by resolution (smallest first)
   for (var group in photoGroups) {
     group.photos.sort((a, b) {
-      final sizeA = (a.width ?? 0) * (a.height ?? 0);
-      final sizeB = (b.width ?? 0) * (b.height ?? 0);
+      final AssetEntity assetA = a as AssetEntity;
+      final AssetEntity assetB = b as AssetEntity;
+      
+      final int sizeA = (assetA.width ?? 0) * (assetA.height ?? 0);
+      final int sizeB = (assetB.width ?? 0) * (assetB.height ?? 0);
       return sizeA.compareTo(sizeB);
     });
   }
+  
+  // ✅ SINGLE setState() call at the very end
+  if (mounted) {
+    setState(() {
+      // Just trigger rebuild - data is already sorted
+    });
+  }
 }
 
+// ✅ REPLACE YOUR EXISTING _sortGroupsByLargest() METHOD
+void _sortGroupsByLargest() {
+  // ✅ NO setState() calls during sorting!
+  photoGroups.sort((a, b) => b.totalSize.compareTo(a.totalSize));
+  
+  // Sort photos within each group by resolution (largest first)
+  for (var group in photoGroups) {
+    group.photos.sort((a, b) {
+      final AssetEntity assetA = a as AssetEntity;
+      final AssetEntity assetB = b as AssetEntity;
+      
+      final int sizeA = (assetA.width ?? 0) * (assetA.height ?? 0);
+      final int sizeB = (assetB.width ?? 0) * (assetB.height ?? 0);
+      return sizeB.compareTo(sizeA);
+    });
+  }
+  
+  // ✅ SINGLE setState() call at the very end
+  if (mounted) {
+    setState(() {
+      // Just trigger rebuild - data is already sorted
+    });
+  }
+}
+
+// ✅ REPLACE YOUR EXISTING _sortGroupsByNewest() METHOD
+// ✅ REPLACE YOUR EXISTING _sortGroupsByNewest() METHOD
+void _sortGroupsByNewest() {
+  // ✅ NO setState() calls during sorting!
+  photoGroups.sort((a, b) {
+    final dateA = a.photos.first.createDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final dateB = b.photos.first.createDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
+    return dateB.compareTo(dateA);
+  });
+  
+  // Sort photos within each group by date (newest first)
+  for (var group in photoGroups) {
+    group.photos.sort((a, b) {
+      final AssetEntity assetA = a as AssetEntity;
+      final AssetEntity assetB = b as AssetEntity;
+      
+      final dateA = assetA.createDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final dateB = assetB.createDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return dateB.compareTo(dateA);
+    });
+  }
+  
+  // ✅ SINGLE setState() call at the very end
+  if (mounted) {
+    setState(() {
+      // Just trigger rebuild - data is already sorted
+    });
+  }
+}
+
+// ✅ REPLACE YOUR EXISTING _sortGroupsByOldest() METHOD
+// ✅ REPLACE YOUR EXISTING _sortGroupsByOldest() METHOD
+void _sortGroupsByOldest() {
+  // ✅ NO setState() calls during sorting!
+  photoGroups.sort((a, b) {
+    final dateA = a.photos.first.createDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final dateB = b.photos.first.createDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
+    return dateA.compareTo(dateB);
+  });
+  
+  // Sort photos within each group by date (oldest first)
+  for (var group in photoGroups) {
+    group.photos.sort((a, b) {
+      final AssetEntity assetA = a as AssetEntity;
+      final AssetEntity assetB = b as AssetEntity;
+      
+      final dateA = assetA.createDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final dateB = assetB.createDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return dateA.compareTo(dateB);
+    });
+  }
+  
+  // ✅ SINGLE setState() call at the very end
+  if (mounted) {
+    setState(() {
+      // Just trigger rebuild - data is already sorted
+    });
+  }
+}
+
+  Future<double> _getGroupSize(SimilarPhotoGroup group) async {
+    double totalSize = 0.0;
+    
+    for (int i = 0; i < group.photos.length; i++) {
+      totalSize += await _getPhotoSize(group, i);
+    }
+    
+    return totalSize;
+  }
+
+  String _formatFileSize(double sizeInMB) {
+    if (sizeInMB < 0.1) {
+      return '${(sizeInMB * 1024).toStringAsFixed(1)}KB';
+    } else if (sizeInMB < 1000) {
+      return '${sizeInMB.toStringAsFixed(1)}MB';
+    } else {
+      return '${(sizeInMB / 1024).toStringAsFixed(1)}GB';
+    }
+  }
+
+ Future<void> _deleteSelectedPhotos() async {
+  if (!await _checkDeletePermission()) return;
+
+  // Collect all selected photos first
+  List<AssetEntity> photosToDelete = [];
+  for (var group in photoGroups) {
+    for (int index in group.selectedIndices) {
+      photosToDelete.add(group.photos[index]);
+    }
+  }
+
+  if (photosToDelete.isEmpty) return;
+
+  // Show loading dialog
+  if (mounted) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            Text('Deleting ${photosToDelete.length} photos...'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  try {
+    print('🗑️ Attempting to delete ${photosToDelete.length} photos');
+
+    // ✅ FIXED: Use batch deletion with all photo IDs at once
+    List<String> photoIds = photosToDelete.map((photo) => photo.id).toList();
+    
+    // This will show only ONE permission dialog for all photos
+    List<String> successfullyDeleted = await PhotoManager.editor.deleteWithIds(photoIds);
+    
+    // Calculate results
+    int deletedCount = successfullyDeleted.length;
+    int failedCount = photosToDelete.length - deletedCount;
+
+    // Close loading dialog
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+
+    if (failedCount == 0) {
+      // All photos deleted successfully
+      print('✅ Successfully deleted $deletedCount photos');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Successfully deleted $deletedCount photos'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        
+        Navigator.of(context).pop(true); // Return success
+      }
+      
+    } else {
+      // Some photos failed to delete
+      print('⚠️ Deleted $deletedCount photos, $failedCount failed');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Deleted $deletedCount photos. $failedCount failed.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        
+        Navigator.of(context).pop(deletedCount > 0); // Return true if any deleted
+      }
+    }
+
+  } catch (e) {
+    print('❌ Error deleting photos: $e');
+    
+    if (mounted) {
+      Navigator.of(context).pop(); // Close loading dialog
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error deleting photos: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      
+      Navigator.of(context).pop(false);
+    }
+  }
+}
+
+
+  void _removeDeletedPhotosFromUI(List<String> failedIds, List<AssetEntity> photosToDelete) {
+    // Simple approach: navigate back to home screen
+    if (mounted) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+      
+      if (failedIds.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${photosToDelete.length - failedIds.length} photos deleted successfully. ${failedIds.length} failed to delete.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('All ${photosToDelete.length} photos deleted successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<bool> _checkDeletePermission() async {
+    final PermissionState permission = await PhotoManager.requestPermissionExtend();
+    
+    if (permission != PermissionState.authorized && permission != PermissionState.limited) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Permission denied. Cannot delete photos.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return false;
+    }
+    return true;
+  }
+
+  void _cleanSelectedPhotos() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Clean Photos'),
+        content: Text(
+          'Are you sure you want to delete $selectedCount selected photos? '
+          'This will free up ${selectedSize.toStringAsFixed(1)}MB of storage.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop(); // Close dialog
+              _deleteSelectedPhotos(); // This calls your actual deletion method
+            },
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.red,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -491,96 +1031,72 @@ void _sortGroupsBySmallest() {
           ),
         ),
         centerTitle: true,
-        actions: [
-          TextButton(
-            onPressed: selectedCount == widget.totalCount ? _deselectAll : _selectAll,
-            child: Text(
-              selectedCount == widget.totalCount ? 'Deselect all' : 'Select all',
-              style: const TextStyle(
-                color: Colors.blue,
-                fontSize: 16,
-              ),
-            ),
-          ),
-        ],
+       // ✅ FIXED: Correct logic
+actions: [
+  Flexible( // ✅ Wrap with Flexible
+    child: TextButton(
+      onPressed: _isSelectingAll 
+          ? null 
+          : (selectedCount == _getTotalSelectablePhotos() ? _deselectAll : _selectAll),
+      child: Text(
+        selectedCount == _getTotalSelectablePhotos() ? 'Deselect all' : 'Select all',
+        style: const TextStyle(
+          color: Colors.blue,
+          fontSize: 13, // ✅ Reduced from 14 to 13
+        ),
+        overflow: TextOverflow.ellipsis, // ✅ Add this
+      ),
+    ),
+  ),
+],
       ),
       body: isLoading
-          ? Center(
+          ? const Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const CircularProgressIndicator(),
-                  const SizedBox(height: 16),
-                  Text('Processing similar photos...'),
-                  const SizedBox(height: 8),
-                  Text(
-                    '$processedCount / ${widget.similarPhotos.take(500).length}',
-                    style: const TextStyle(color: Colors.grey),
-                  ),
-                  if (widget.similarPhotos.length > 500) ...[
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Showing first 500 photos for performance',
-                      style: TextStyle(color: Colors.orange, fontSize: 12),
-                    ),
-                  ],
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('Loading photo groups...'), // Updated text
                 ],
               ),
             )
           : Column(
               children: [
-// Header info
-Padding(
-  padding: const EdgeInsets.all(16),
-  child: Row(
-    children: [
-      // Sort button (replaces "Photos Grouped")
-      GestureDetector(
-        onTap: _showSortOptions,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.blue),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.sort, color: Colors.blue, size: 16),
-              const SizedBox(width: 4),
-              Text(
-                _currentSortOption.displayName,
-                style: const TextStyle(
-                  color: Colors.blue,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
+                // Header info
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      // Sort button (replaces "Photos Grouped")
+                      GestureDetector(
+                        onTap: _showSortOptions,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.blue),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.sort, color: Colors.blue, size: 16),
+                              const SizedBox(width: 4),
+                              Text(
+                                _currentSortOption.displayName,
+                                style: const TextStyle(
+                                  color: Colors.blue,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
-        ),
-      ),
-      if (widget.similarPhotos.length > 500) ...[
-        const SizedBox(width: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: Colors.orange.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(
-            'Limited view',
-            style: TextStyle(
-              color: Colors.orange[700],
-              fontSize: 12,
-            ),
-          ),
-        ),
-      ],
-    ],
-  ),
-),
-
                 
                 // Photo groups
                 Expanded(
@@ -595,73 +1111,113 @@ Padding(
                           ),
                         )
                       : ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          itemCount: photoGroups.length,
-                          itemBuilder: (context, index) {
-                            return _buildPhotoGroup(index);
-                          },
-                        ),
+  itemCount: photoGroups.length,
+  // ✅ PERFORMANCE OPTIMIZATIONS
+  cacheExtent: 1000.0, // Cache more items to reduce rebuilds
+  addAutomaticKeepAlives: true, // Keep items alive when scrolling
+  addRepaintBoundaries: true, // Reduce repaints
+  physics: const BouncingScrollPhysics(), // Smoother scrolling
+  itemBuilder: (context, index) {
+    return _buildPhotoGroup(index); // ✅ ADD THIS LINE
+  },
+),
+
                 ),
               ],
             ),
       bottomNavigationBar: _buildBottomBar(),
     );
   }
-
-  Widget _buildPhotoGroup(int groupIndex) {
-    final group = photoGroups[groupIndex];
-    
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Group header
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '${group.photos.length} Photos ${group.totalSize.toStringAsFixed(1)}MB',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.black87,
-                ),
-              ),
-              TextButton(
-                onPressed: () => _deselectGroup(groupIndex),
-                child: const Text(
-                  'Deselect all',
-                  style: TextStyle(
-                    color: Colors.blue,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          
-          const SizedBox(height: 12),
-          
-          // Photos grid - simplified for performance
-          _buildSimplePhotosGrid(groupIndex),
-        ],
-      ),
-    );
+String _formatGroupSize(double sizeInMB) {
+  if (sizeInMB == 0.0) {
+    return '(calculating...)'; // Show while calculating
   }
+  
+  if (sizeInMB < 1) {
+    return '(${(sizeInMB * 1024).toStringAsFixed(0)} KB)';
+  } else if (sizeInMB < 1024) {
+    return '(${sizeInMB.toStringAsFixed(1)} MB)';
+  } else {
+    return '(${(sizeInMB / 1024).toStringAsFixed(1)} GB)';
+  }
+}
 
+Widget _buildPhotoGroup(int groupIndex) {
+  final group = photoGroups[groupIndex];
+  
+  return Container(
+    margin: const EdgeInsets.only(bottom: 16),
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(12),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.05),
+          blurRadius: 10,
+          offset: const Offset(0, 2),
+        ),
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            // ✅ Display group size (will show "calculating..." initially)
+            Text(
+              '${group.photos.length} Photos ${_formatGroupSize(group.totalSize)}',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+                color: Colors.black87,
+              ),
+            ),
+            TextButton(
+              onPressed: () => _deselectGroup(groupIndex),
+              child: const Text(
+                'Deselect all',
+                style: TextStyle(color: Colors.blue, fontSize: 14),
+              ),
+            ),
+          ],
+        ),
+        
+        const SizedBox(height: 12),
+        _buildOptimizedPhotosGrid(groupIndex),
+      ],
+    ),
+  );
+}
+
+
+// ✅ Optimized grid with better performance
+Widget _buildOptimizedPhotosGrid(int groupIndex) {
+  final group = photoGroups[groupIndex];
+  
+  return GridView.builder(
+    shrinkWrap: true,
+    physics: const NeverScrollableScrollPhysics(),
+    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+      crossAxisCount: 3,
+      crossAxisSpacing: 2,
+      mainAxisSpacing: 2,
+    ),
+    itemCount: math.min(group.photos.length, 6), // ✅ CRITICAL: Keep this limit!
+    cacheExtent: 500.0,
+    addAutomaticKeepAlives: false,
+    addRepaintBoundaries: true,
+    itemBuilder: (context, photoIndex) {
+      return RepaintBoundary(
+        child: GestureDetector(
+          onTap: () => _togglePhotoSelection(groupIndex, photoIndex),
+          child: _buildPhotoItem(groupIndex, photoIndex),
+        ),
+      );
+    },
+  );
+}
   Widget _buildSimplePhotosGrid(int groupIndex) {
     final group = photoGroups[groupIndex];
     
@@ -684,96 +1240,102 @@ Padding(
     );
   }
 
-  Widget _buildPhotoItem(int groupIndex, int photoIndex) {
-    final group = photoGroups[groupIndex];
-    final photo = group.photos[photoIndex];
-    final isSelected = group.selectedIndices.contains(photoIndex);
-    final isBest = photoIndex == group.bestPhotoIndex;
-    
-    return GestureDetector(
-      onTap: () => _togglePhotoSelection(groupIndex, photoIndex),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          border: isSelected ? Border.all(color: Colors.blue, width: 2) : null,
-        ),
-        child: Stack(
-          children: [
-            // Photo thumbnail
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: FutureBuilder<Uint8List?>(
-                future: photo.thumbnailDataWithSize(
-                  const ThumbnailSize(100, 100),
-                  quality: 60,
-                ),
-                builder: (context, snapshot) {
-                  if (snapshot.hasData && snapshot.data != null) {
-                    return Image.memory(
-                      snapshot.data!,
-                      width: double.infinity,
-                      height: double.infinity,
-                      fit: BoxFit.cover,
-                    );
-                  }
-                  return Container(
-                    color: Colors.grey[300],
-                    child: const Center(
-                      child: Icon(Icons.image, color: Colors.grey),
-                    ),
-                  );
-                },
-              ),
-            ),
-            
-            // Selection indicator
-            Positioned(
-              top: 4,
-              right: 4,
-              child: Container(
-                width: 20,
-                height: 20,
-                decoration: BoxDecoration(
-                  color: isSelected ? Colors.blue : Colors.white.withOpacity(0.8),
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: isSelected ? Colors.blue : Colors.grey,
-                    width: 1,
-                  ),
-                ),
-                child: isSelected
-                    ? const Icon(Icons.check, color: Colors.white, size: 14)
-                    : null,
-              ),
-            ),
-            
-            // Best indicator
-            if (isBest)
-              Positioned(
-                bottom: 4,
-                left: 4,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF00D4AA),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: const Text(
-                    'Best',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 8,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
+ Widget _buildPhotoItem(int groupIndex, int photoIndex) {
+  final group = photoGroups[groupIndex];
+  final photo = group.photos[photoIndex];
+  final isSelected = group.selectedIndices.contains(photoIndex);
+  final isBest = photoIndex == group.bestPhotoIndex;
+  
+  return GestureDetector(
+    onTap: () => _togglePhotoSelection(groupIndex, photoIndex),
+    child: Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: isSelected ? Border.all(color: Colors.blue, width: 2) : null,
+      ),
+      child: Stack(
+        children: [ // ✅ FIXED: Proper Stack children array
+          // Photo thumbnail
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: FutureBuilder<Uint8List?>(
+ future: group.photos[photoIndex].thumbnailDataWithSize(
+  const ThumbnailSize(150, 150), // ✅ SMALLER SIZE
+  quality: 60, // ✅ LOWER QUALITY
+),
+
+  builder: (context, snapshot) {
+    if (snapshot.hasData && snapshot.data != null) {
+      return Image.memory(
+  snapshot.data!,
+  fit: BoxFit.cover,
+  // ✅ MATCH THE THUMBNAIL SIZE
+  cacheWidth: 150,
+  cacheHeight: 150,
+  gaplessPlayback: true,
+);
+
+    }
+    return Container(
+      color: Colors.grey[300],
+      child: const Center(
+        child: CircularProgressIndicator(strokeWidth: 2),
       ),
     );
-  }
+  },
+),
+          ),
+          
+          // Selection indicator
+          Positioned(
+            top: 4,
+            right: 4,
+            child: Container(
+              width: 20,
+              height: 20,
+              decoration: BoxDecoration(
+                color: isSelected ? Colors.blue : Colors.white.withOpacity(0.8),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: isSelected ? Colors.blue : Colors.grey,
+                  width: 1,
+                ),
+              ),
+              child: isSelected
+                  ? const Icon(Icons.check, color: Colors.white, size: 14)
+                  : null,
+            ),
+          ),
+          
+          // Best indicator
+          if (isBest)
+            Positioned(
+              bottom: 4,
+              left: 4,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF00D4AA),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Text(
+                  'Best',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 8,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+        ], // ✅ FIXED: Proper closing bracket for Stack children
+      ),
+    ),
+  );
+}
 
+
+  // Update your UI to show loading when calculating sizes
   Widget _buildBottomBar() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -792,7 +1354,7 @@ Padding(
           width: double.infinity,
           height: 48,
           child: ElevatedButton(
-            onPressed: selectedCount > 0 ? _cleanSelectedPhotos : null,
+            onPressed: selectedCount > 0 && !isCalculatingSize ? _cleanSelectedPhotos : null,
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.blue,
               foregroundColor: Colors.white,
@@ -802,77 +1364,38 @@ Padding(
               ),
               disabledBackgroundColor: Colors.grey[300],
             ),
-            child: Text(
-              'Clean $selectedCount photos',
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+            child: isCalculatingSize 
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                )
+              : Text(
+                  'Clean $selectedCount photos (${selectedSize.toStringAsFixed(1)}MB)',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
           ),
         ),
       ),
     );
   }
 
-  void _cleanSelectedPhotos() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Clean Photos'),
-        content: Text(
-          'Are you sure you want to delete $selectedCount selected photos? '
-          'This will free up ${selectedSize.toStringAsFixed(1)}MB of storage.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _performCleanup();
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Delete', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _performCleanup() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const AlertDialog(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('Cleaning photos...'),
-          ],
-        ),
-      ),
-    );
-
-    Future.delayed(const Duration(seconds: 2), () {
-      Navigator.pop(context);
-      Navigator.pop(context);
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Successfully cleaned $selectedCount photos'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    });
-  }
+   // ✅ ADD THIS METHOD AT THE END
+ // ✅ FIND YOUR dispose() METHOD AND ADD THIS
+@override
+void dispose() {
+  _debounceTimer?.cancel();
+  _sizeCalculationTimer?.cancel(); // ✅ ADD THIS LINE
+  super.dispose();
 }
 
-
+}
 
 class SortOptionsBottomSheet extends StatefulWidget {
   final PhotoSortOption currentOption;
@@ -894,8 +1417,11 @@ class _SortOptionsBottomSheetState extends State<SortOptionsBottomSheet> {
   @override
   void initState() {
     super.initState();
+    // ✅ FIXED: Only initialize the selected option
     _selectedOption = widget.currentOption;
   }
+  
+
 
   @override
   Widget build(BuildContext context) {
@@ -1036,45 +1562,44 @@ class _SortOptionsBottomSheetState extends State<SortOptionsBottomSheet> {
       ),
     );
   }
-
-  Widget _buildSortOption(PhotoSortOption option, {required bool isSelected}) {
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _selectedOption = option;
-        });
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-        decoration: BoxDecoration(
-          color: isSelected ? Colors.blue : Colors.grey[100],
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected ? Colors.blue : Colors.grey[300]!,
-            width: 1,
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.sort,
-              color: isSelected ? Colors.white : Colors.blue,
-              size: 18,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              option.displayName,
-              style: TextStyle(
-                color: isSelected ? Colors.white : Colors.blue,
-                fontWeight: FontWeight.w600,
-                fontSize: 16,
-              ),
-            ),
-          ],
+Widget _buildSortOption(PhotoSortOption option, {required bool isSelected}) {
+  return GestureDetector(
+    onTap: () {
+      setState(() {
+        _selectedOption = option;
+      });
+    },
+    child: Container(
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+      decoration: BoxDecoration(
+        color: isSelected ? Colors.blue : Colors.grey[100],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isSelected ? Colors.blue : Colors.grey[300]!,
+          width: 1,
         ),
       ),
-    );
-  }
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            option.icon, // ✅ FIXED: Use option.icon instead of Icons.sort
+            color: isSelected ? Colors.white : Colors.blue,
+            size: 18,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            option.displayName,
+            style: TextStyle(
+              color: isSelected ? Colors.white : Colors.blue,
+              fontWeight: FontWeight.w600,
+              fontSize: 16,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
+}
