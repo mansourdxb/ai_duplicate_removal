@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import '../models/duplicate_contact.dart';
+import '../models/duplicate_contact.dart' as model;
 import '../services/contact_service.dart';
 import '../widgets/contact_group_widget.dart';
 
 class ContactResultsScreen extends StatefulWidget {
-  final List<List<DuplicateContact>> duplicates;
+  final List<List<model.DuplicateContact>> duplicates;
 
   const ContactResultsScreen({Key? key, required this.duplicates}) : super(key: key);
 
@@ -13,7 +13,7 @@ class ContactResultsScreen extends StatefulWidget {
 }
 
 class _ContactResultsScreenState extends State<ContactResultsScreen> {
-  final Set<DuplicateContact> selectedContacts = {};
+  final Set<model.DuplicateContact> selectedContacts = {};
   final ContactService contactService = ContactService();
   bool isProcessing = false;
   bool selectAll = false;
@@ -26,14 +26,14 @@ class _ContactResultsScreenState extends State<ContactResultsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Duplicate Contacts'),
+        title: const Text('Duplicate Contacts'),
         actions: [
           IconButton(
-            icon: Icon(Icons.help_outline),
+            icon: const Icon(Icons.help_outline),
             onPressed: _showHelpDialog,
           ),
           IconButton(
-            icon: Icon(Icons.select_all),
+            icon: const Icon(Icons.select_all),
             onPressed: _toggleSelectAll,
           ),
         ],
@@ -43,8 +43,8 @@ class _ContactResultsScreenState extends State<ContactResultsScreen> {
           // Summary Card
           Container(
             width: double.infinity,
-            margin: EdgeInsets.all(16),
-            padding: EdgeInsets.all(16),
+            margin: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Colors.blue.shade50,
               borderRadius: BorderRadius.circular(8),
@@ -61,7 +61,7 @@ class _ContactResultsScreenState extends State<ContactResultsScreen> {
                     color: Colors.blue.shade800,
                   ),
                 ),
-                SizedBox(height: 8),
+                const SizedBox(height: 8),
                 Text('Found ${widget.duplicates.length} duplicate groups'),
                 Text('Total duplicates: $totalDuplicates'),
                 Text('Selected for removal: ${selectedContacts.length}'),
@@ -71,13 +71,13 @@ class _ContactResultsScreenState extends State<ContactResultsScreen> {
           
           // Action Buttons
           Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
                     onPressed: selectedContacts.isEmpty ? null : _removeDuplicates,
-                    icon: Icon(Icons.delete),
+                    icon: const Icon(Icons.delete),
                     label: Text('Remove Selected (${selectedContacts.length})'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
@@ -85,22 +85,22 @@ class _ContactResultsScreenState extends State<ContactResultsScreen> {
                     ),
                   ),
                 ),
-                SizedBox(width: 12),
+                const SizedBox(width: 12),
                 ElevatedButton.icon(
                   onPressed: _autoSelectDuplicates,
-                  icon: Icon(Icons.auto_fix_high),
-                  label: Text('Auto Select'),
+                  icon: const Icon(Icons.auto_fix_high),
+                  label: const Text('Auto Select'),
                 ),
               ],
             ),
           ),
           
-          SizedBox(height: 16),
+          const SizedBox(height: 16),
           
           // Duplicate Groups List
           Expanded(
             child: widget.duplicates.isEmpty
-                ? Center(
+                ? const Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -139,7 +139,7 @@ class _ContactResultsScreenState extends State<ContactResultsScreen> {
     );
   }
 
-  void _toggleContactSelection(DuplicateContact contact) {
+  void _toggleContactSelection(model.DuplicateContact contact) {
     setState(() {
       if (selectedContacts.contains(contact)) {
         selectedContacts.remove(contact);
@@ -171,7 +171,7 @@ class _ContactResultsScreenState extends State<ContactResultsScreen> {
       // Auto-select duplicates based on quality score
       for (var group in widget.duplicates) {
         // Sort by quality score (assuming higher is better)
-        var sortedGroup = List<DuplicateContact>.from(group);
+        var sortedGroup = List<model.DuplicateContact>.from(group);
         sortedGroup.sort((a, b) => b.qualityScore.compareTo(a.qualityScore));
         
         // Keep the best one, select others for removal
@@ -195,19 +195,19 @@ class _ContactResultsScreenState extends State<ContactResultsScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Confirm Removal'),
+        title: const Text('Confirm Removal'),
         content: Text(
           'Are you sure you want to remove ${selectedContacts.length} duplicate contacts? This action cannot be undone.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: Text('Cancel'),
+            child: const Text('Cancel'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: Text('Remove'),
+            child: const Text('Remove'),
           ),
         ],
       ),
@@ -220,7 +220,7 @@ class _ContactResultsScreenState extends State<ContactResultsScreen> {
     });
 
     try {
-      await contactService.removeContacts(selectedContacts.toList());
+      await ContactService.removeContacts(selectedContacts.toList().cast<model.DuplicateContact>());
       
       setState(() {
         // Remove deleted contacts from groups
@@ -234,7 +234,7 @@ class _ContactResultsScreenState extends State<ContactResultsScreen> {
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+        const SnackBar(
           content: Text('Successfully removed duplicate contacts'),
           backgroundColor: Colors.green,
         ),
@@ -257,7 +257,7 @@ class _ContactResultsScreenState extends State<ContactResultsScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('How to Remove Duplicates'),
+        title: const Text('How to Remove Duplicates'),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -279,15 +279,15 @@ class _ContactResultsScreenState extends State<ContactResultsScreen> {
                 '4. Remove Selected',
                 'Tap "Remove Selected" to permanently delete chosen duplicates.',
               ),
-              SizedBox(height: 16),
+              const SizedBox(height: 16),
               Container(
-                padding: EdgeInsets.all(12),
+                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: Colors.orange.shade50,
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: Colors.orange.shade200),
                 ),
-                child: Row(
+                child: const Row(
                   children: [
                     Icon(Icons.warning, color: Colors.orange),
                     SizedBox(width: 8),
@@ -306,7 +306,7 @@ class _ContactResultsScreenState extends State<ContactResultsScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('Got it'),
+            child: const Text('Got it'),
           ),
         ],
       ),
@@ -315,7 +315,7 @@ class _ContactResultsScreenState extends State<ContactResultsScreen> {
 
   Widget _buildHelpItem(String title, String description) {
     return Padding(
-      padding: EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -326,10 +326,10 @@ class _ContactResultsScreenState extends State<ContactResultsScreen> {
               color: Colors.blue.shade800,
             ),
           ),
-          SizedBox(height: 4),
+          const SizedBox(height: 4),
           Text(
             description,
-            style: TextStyle(fontSize: 13),
+            style: const TextStyle(fontSize: 13),
           ),
         ],
       ),

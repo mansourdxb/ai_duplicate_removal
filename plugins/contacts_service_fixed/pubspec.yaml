@@ -1,9 +1,0 @@
-name: contacts_service_fixed
-description: A fixed version of contacts_service plugin
-version: 0.6.3+1
-flutter:
-  plugin:
-    platforms:
-      android:
-        package: dev.fluttercommunity.contacts_service
-        pluginClass: ContactsServicePlugin

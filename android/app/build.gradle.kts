@@ -1,39 +1,53 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// ✅ Kotlin-compatible way to read local.properties
+fun getLocalProperty(key: String, file: String = "local.properties"): String {
+    val properties = Properties()
+    val propFile = rootProject.file(file)
+    if (propFile.exists()) {
+        properties.load(FileInputStream(propFile))
+    }
+    return properties.getProperty(key) ?: ""
+}
+
+val flutterVersionCode = getLocalProperty("flutter.versionCode").ifEmpty { "1" }
+val flutterVersionName = getLocalProperty("flutter.versionName").ifEmpty { "1.0" }
 
 android {
     namespace = "com.example.ai_duplicate_removal"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
+        jvmTarget = "1.8"
+    }
+
+    sourceSets {
+        getByName("main").java.srcDirs("src/main/kotlin")
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.ai_duplicate_removal"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
+        versionCode = flutterVersionCode.toInt()
+        versionName = flutterVersionName
     }
 
     buildTypes {
-        release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+        getByName("release") {
             signingConfig = signingConfigs.getByName("debug")
         }
     }

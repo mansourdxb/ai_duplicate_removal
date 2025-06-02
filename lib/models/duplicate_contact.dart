@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 class DuplicateContact {
   final String id;
   final String? displayName;
@@ -14,6 +16,7 @@ class DuplicateContact {
   final double similarityScore;
   final double qualityScore;
   final List<String> matchingFields;
+  final Uint8List? avatar; // ✅ Add this line
 
   DuplicateContact({
     required this.id,
@@ -31,6 +34,7 @@ class DuplicateContact {
     this.similarityScore = 0.0,
     this.qualityScore = 0.0,
     this.matchingFields = const [],
+    this.avatar, // ✅ Add this to the constructor
   });
 
   // Create from contacts_service Contact
@@ -99,7 +103,7 @@ class DuplicateContact {
 
     // Name similarity (40% weight)
     if (displayName != null && other.displayName != null) {
-      final nameSim = _stringSimilarity(displayName!, other.displayName!);
+      final nameSim = stringSimilarity(displayName!, other.displayName!);
       if (nameSim > 0.8) {
         similarity += nameSim * 0.4;
         matches.add('name');
@@ -112,7 +116,7 @@ class DuplicateContact {
       bool phoneMatch = false;
       for (var phone1 in phoneNumbers!) {
         for (var phone2 in other.phoneNumbers!) {
-          if (_phonesSimilar(phone1.value, phone2.value)) {
+          if (phonesSimilar(phone1.value, phone2.value)) {
             similarity += 0.3;
             matches.add('phone');
             phoneMatch = true;
@@ -143,7 +147,7 @@ class DuplicateContact {
 
     // Company similarity (5% weight)
     if (company != null && other.company != null) {
-      final companySim = _stringSimilarity(company!, other.company!);
+      final companySim = stringSimilarity(company!, other.company!);
       if (companySim > 0.7) {
         similarity += companySim * 0.05;
         matches.add('company');
@@ -155,7 +159,7 @@ class DuplicateContact {
   }
 
   // String similarity using Levenshtein distance
-  double _stringSimilarity(String s1, String s2) {
+  double stringSimilarity(String s1, String s2) {
     if (s1 == s2) return 1.0;
     if (s1.isEmpty || s2.isEmpty) return 0.0;
 
@@ -197,7 +201,7 @@ class DuplicateContact {
   }
 
   // Check if phone numbers are similar
-  bool _phonesSimilar(String? phone1, String? phone2) {
+  bool phonesSimilar(String? phone1, String? phone2) {
     if (phone1 == null || phone2 == null) return false;
     
     // Remove all non-digit characters

@@ -18,10 +18,10 @@ class ContactGroupWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       elevation: 2,
       child: Padding(
-        padding: EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -29,7 +29,7 @@ class ContactGroupWidget extends StatelessWidget {
             Row(
               children: [
                 Container(
-                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     color: Colors.blue.shade100,
                     borderRadius: BorderRadius.circular(12),
@@ -43,7 +43,7 @@ class ContactGroupWidget extends StatelessWidget {
                     ),
                   ),
                 ),
-                SizedBox(width: 8),
+                const SizedBox(width: 8),
                 Text(
                   '${group.length} contacts',
                   style: TextStyle(
@@ -51,7 +51,7 @@ class ContactGroupWidget extends StatelessWidget {
                     color: Colors.grey.shade600,
                   ),
                 ),
-                Spacer(),
+                const Spacer(),
                 Icon(
                   Icons.people,
                   size: 16,
@@ -60,7 +60,7 @@ class ContactGroupWidget extends StatelessWidget {
               ],
             ),
             
-            SizedBox(height: 16),
+            const SizedBox(height: 16),
             
             // Contact List
             ...group.asMap().entries.map((entry) {
@@ -70,7 +70,7 @@ class ContactGroupWidget extends StatelessWidget {
               final isOriginal = index == 0; // First contact is considered original
               
               return Container(
-                margin: EdgeInsets.only(bottom: 8),
+                margin: const EdgeInsets.only(bottom: 8),
                 decoration: BoxDecoration(
                   border: Border.all(
                     color: isSelected 
@@ -122,12 +122,12 @@ class ContactGroupWidget extends StatelessWidget {
                       ),
                       if (isOriginal)
                         Container(
-                          padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
                             color: Colors.green,
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: Text(
+                          child: const Text(
                             'KEEP',
                             style: TextStyle(
                               fontSize: 10,
@@ -138,12 +138,12 @@ class ContactGroupWidget extends StatelessWidget {
                         ),
                       if (isSelected)
                         Container(
-                          padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
                             color: Colors.red,
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: Text(
+                          child: const Text(
                             'DELETE',
                             style: TextStyle(
                               fontSize: 10,
@@ -160,28 +160,28 @@ class ContactGroupWidget extends StatelessWidget {
                       if (contact.phoneNumbers?.isNotEmpty == true)
                         Text(
                           contact.phoneNumbers!.first.value ?? '',
-                          style: TextStyle(fontSize: 12),
+                          style: const TextStyle(fontSize: 12),
                         ),
                       if (contact.emails?.isNotEmpty == true)
                         Text(
                           contact.emails!.first.value ?? '',
-                          style: TextStyle(fontSize: 12),
+                          style: const TextStyle(fontSize: 12),
                         ),
-                      SizedBox(height: 4),
+                      const SizedBox(height: 4),
                       Row(
                         children: [
                           _buildInfoChip('Quality: ${contact.qualityScore.toStringAsFixed(1)}', Colors.blue),
-                          SizedBox(width: 8),
+                          const SizedBox(width: 8),
                           _buildInfoChip('Match: ${(contact.similarityScore * 100).toStringAsFixed(0)}%', Colors.orange),
                         ],
                       ),
                     ],
                   ),
                   trailing: isSelected
-                      ? Icon(Icons.check_circle, color: Colors.red)
+                      ? const Icon(Icons.check_circle, color: Colors.red)
                       : isOriginal
-                          ? Icon(Icons.star, color: Colors.green)
-                          : Icon(Icons.radio_button_unchecked, color: Colors.grey),
+                          ? const Icon(Icons.star, color: Colors.green)
+                          : const Icon(Icons.radio_button_unchecked, color: Colors.grey),
                 ),
               );
             }).toList(),
@@ -189,8 +189,8 @@ class ContactGroupWidget extends StatelessWidget {
             // Match Details
             if (group.length > 1)
               Container(
-                margin: EdgeInsets.only(top: 8),
-                padding: EdgeInsets.all(8),
+                margin: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
                   color: Colors.grey.shade100,
                   borderRadius: BorderRadius.circular(6),
@@ -206,13 +206,13 @@ class ContactGroupWidget extends StatelessWidget {
                         color: Colors.grey.shade700,
                       ),
                     ),
-                    SizedBox(height: 4),
+                    const SizedBox(height: 4),
                     Wrap(
                       spacing: 8,
                       runSpacing: 4,
                       children: _getMatchReasons(group).map((reason) =>
                         Container(
-                          padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
                             color: Colors.blue.shade100,
                             borderRadius: BorderRadius.circular(10),
@@ -238,7 +238,7 @@ class ContactGroupWidget extends StatelessWidget {
 
   Widget _buildInfoChip(String text, Color color) {
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(8),
@@ -248,7 +248,7 @@ class ContactGroupWidget extends StatelessWidget {
         text,
         style: TextStyle(
           fontSize: 10,
-          color: color.shade800,
+          color: color.withOpacity(0.9),
           fontWeight: FontWeight.w500,
         ),
       ),

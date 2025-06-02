@@ -4,6 +4,8 @@ import '../services/contact_service.dart';
 import 'contact_results_screen.dart';
 
 class DuplicateDetectionScreen extends StatefulWidget {
+  const DuplicateDetectionScreen({super.key});
+
   @override
   _DuplicateDetectionScreenState createState() => _DuplicateDetectionScreenState();
 }
@@ -32,12 +34,12 @@ class _DuplicateDetectionScreenState extends State<DuplicateDetectionScreen>
 
   void _setupAnimations() {
     _pulseController = AnimationController(
-      duration: Duration(seconds: 2),
+      duration: const Duration(seconds: 2),
       vsync: this,
     );
     
     _progressController = AnimationController(
-      duration: Duration(milliseconds: 500),
+      duration: const Duration(milliseconds: 500),
       vsync: this,
     );
     
@@ -84,11 +86,11 @@ class _DuplicateDetectionScreenState extends State<DuplicateDetectionScreen>
         ),
         child: SafeArea(
           child: Padding(
-            padding: EdgeInsets.all(24),
+            padding: const EdgeInsets.all(24),
             child: Column(
               children: [
                 _buildHeader(),
-                SizedBox(height: 40),
+                const SizedBox(height: 40),
                 Expanded(
                   child: _isScanning ? _buildScanningView() : _buildMainView(),
                 ),
@@ -104,7 +106,7 @@ class _DuplicateDetectionScreenState extends State<DuplicateDetectionScreen>
     return Column(
       children: [
         Container(
-          padding: EdgeInsets.all(16),
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: Colors.blue.shade600,
             borderRadius: BorderRadius.circular(16),
@@ -112,17 +114,17 @@ class _DuplicateDetectionScreenState extends State<DuplicateDetectionScreen>
               BoxShadow(
                 color: Colors.blue.shade200,
                 blurRadius: 12,
-                offset: Offset(0, 4),
+                offset: const Offset(0, 4),
               ),
             ],
           ),
-          child: Icon(
+          child: const Icon(
             Icons.people_alt,
             size: 48,
             color: Colors.white,
           ),
         ),
-        SizedBox(height: 16),
+        const SizedBox(height: 16),
         Text(
           'AI Duplicate Removal',
           style: TextStyle(
@@ -131,7 +133,7 @@ class _DuplicateDetectionScreenState extends State<DuplicateDetectionScreen>
             color: Colors.grey.shade800,
           ),
         ),
-        SizedBox(height: 8),
+        const SizedBox(height: 8),
         Text(
           'Clean up your contacts with intelligent duplicate detection',
           textAlign: TextAlign.center,
@@ -150,7 +152,7 @@ class _DuplicateDetectionScreenState extends State<DuplicateDetectionScreen>
       children: [
         if (_hasScanned) ...[
           _buildResultsCard(),
-          SizedBox(height: 32),
+          const SizedBox(height: 32),
         ],
         
         AnimatedBuilder(
@@ -182,7 +184,7 @@ class _DuplicateDetectionScreenState extends State<DuplicateDetectionScreen>
                   child: InkWell(
                     borderRadius: BorderRadius.circular(100),
                     onTap: _startScan,
-                    child: Center(
+                    child: const Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -211,7 +213,7 @@ class _DuplicateDetectionScreenState extends State<DuplicateDetectionScreen>
           },
         ),
         
-        SizedBox(height: 32),
+        const SizedBox(height: 32),
         
         Text(
           'Tap to scan your contacts for duplicates',
@@ -221,7 +223,7 @@ class _DuplicateDetectionScreenState extends State<DuplicateDetectionScreen>
           ),
         ),
         
-        SizedBox(height: 24),
+        const SizedBox(height: 24),
         
         _buildFeaturesList(),
       ],
@@ -232,7 +234,7 @@ class _DuplicateDetectionScreenState extends State<DuplicateDetectionScreen>
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Container(
+        SizedBox(
           width: 120,
           height: 120,
           child: Stack(
@@ -258,7 +260,7 @@ class _DuplicateDetectionScreenState extends State<DuplicateDetectionScreen>
                       size: 32,
                       color: Colors.blue.shade600,
                     ),
-                    SizedBox(height: 4),
+                    const SizedBox(height: 4),
                     Text(
                       '${(_scanProgress * 100).toInt()}%',
                       style: TextStyle(
@@ -274,7 +276,7 @@ class _DuplicateDetectionScreenState extends State<DuplicateDetectionScreen>
           ),
         ),
         
-        SizedBox(height: 32),
+        const SizedBox(height: 32),
         
         Text(
           'Scanning Contacts...',
@@ -285,10 +287,10 @@ class _DuplicateDetectionScreenState extends State<DuplicateDetectionScreen>
           ),
         ),
         
-        SizedBox(height: 16),
+        const SizedBox(height: 16),
         
         Container(
-          padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
           decoration: BoxDecoration(
             color: Colors.blue.shade50,
             borderRadius: BorderRadius.circular(12),
@@ -304,7 +306,7 @@ class _DuplicateDetectionScreenState extends State<DuplicateDetectionScreen>
           ),
         ),
         
-        SizedBox(height: 24),
+        const SizedBox(height: 24),
         
         LinearProgressIndicator(
           value: _scanProgress,
@@ -318,7 +320,7 @@ class _DuplicateDetectionScreenState extends State<DuplicateDetectionScreen>
   Widget _buildResultsCard() {
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.all(24),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -326,7 +328,7 @@ class _DuplicateDetectionScreenState extends State<DuplicateDetectionScreen>
           BoxShadow(
             color: Colors.grey.shade200,
             blurRadius: 12,
-            offset: Offset(0, 4),
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -356,17 +358,17 @@ class _DuplicateDetectionScreenState extends State<DuplicateDetectionScreen>
           ),
           
           if (_duplicatesFound > 0) ...[
-            SizedBox(height: 24),
+            const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: _viewResults,
-                icon: Icon(Icons.visibility),
-                label: Text('View Duplicates'),
+                icon: const Icon(Icons.visibility),
+                label: const Text('View Duplicates'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green,
                   foregroundColor: Colors.white,
-                  padding: EdgeInsets.symmetric(vertical: 16),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -388,7 +390,7 @@ class _DuplicateDetectionScreenState extends State<DuplicateDetectionScreen>
     return Column(
       children: [
         Container(
-          padding: EdgeInsets.all(12),
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: color.withOpacity(0.1),
             borderRadius: BorderRadius.circular(12),
@@ -399,7 +401,7 @@ class _DuplicateDetectionScreenState extends State<DuplicateDetectionScreen>
             color: color,
           ),
         ),
-        SizedBox(height: 8),
+        const SizedBox(height: 8),
         Text(
           value,
           style: TextStyle(
@@ -430,16 +432,16 @@ class _DuplicateDetectionScreenState extends State<DuplicateDetectionScreen>
     return Column(
       children: features.map((feature) => 
         Padding(
-          padding: EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.symmetric(vertical: 4),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
+              const Icon(
                 Icons.check_circle,
                 size: 16,
                 color: Colors.green,
               ),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Text(
                 feature,
                 style: TextStyle(
@@ -479,7 +481,7 @@ class _DuplicateDetectionScreenState extends State<DuplicateDetectionScreen>
 
       await _updateProgress(1.0, 'Scan complete!');
       
-      await Future.delayed(Duration(milliseconds: 500));
+      await Future.delayed(const Duration(milliseconds: 500));
 
       setState(() {
         _isScanning = false;
@@ -512,7 +514,7 @@ class _DuplicateDetectionScreenState extends State<DuplicateDetectionScreen>
       _scanProgress = progress;
       _scanStatus = status;
     });
-    await Future.delayed(Duration(milliseconds: 300));
+    await Future.delayed(const Duration(milliseconds: 300));
   }
 
   void _viewResults() {
