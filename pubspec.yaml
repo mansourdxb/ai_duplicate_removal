@@ -34,7 +34,8 @@ dev_dependencies:
   url_launcher: ^6.2.1
   crypto: ^3.0.3
   photo_manager: ^3.0.0
-  app_settings: ^5.1.1  
+  app_settings: ^5.1.1
+  intl: ^0.18.1  
 
 flutter_launcher_icons:
   android: true
