@@ -3258,116 +3258,221 @@ Future<List<SimilarPhotoGroup>> _findAndGroupSimilarPhotos(List<AssetEntity> all
   }
 
 Widget _buildBlurryPhotosCard() {
-  return Card(
-    margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ListTile(
-          leading: Icon(Icons.blur_on, color: Theme.of(context).primaryColor),
-          title: Text('Blurry Photos', style: TextStyle(fontWeight: FontWeight.bold)),
-          subtitle: Text(_blurryPhotosAnalysisComplete 
-              ? '${_blurryPhotoSamples.length} potentially blurry photos found'
-              : 'Identify and remove blurry or out-of-focus images'),
-          trailing: _blurryPhotosAnalysisComplete 
-              ? Icon(Icons.check_circle, color: Colors.green)
-              : null,
-          onTap: _startBlurryPhotosAnalysis,
-        ),
-        
-        // Show loading indicator during analysis
-        if (_blurryPhotosAnalysisProgress > 0 && !_blurryPhotosAnalysisComplete)
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                LinearProgressIndicator(value: _blurryPhotosAnalysisProgress),
-                SizedBox(height: 4),
-                Text('Analyzing photos: ${(_blurryPhotosAnalysisProgress * 100).toInt()}%',
-                    style: TextStyle(fontSize: 12, color: Colors.grey)),
-              ],
+  return GestureDetector(
+    onTap: () async {
+      print('🔍 BLURRY PHOTOS UI: Card tapped');
+      
+      if (_blurryPhotosAnalysisComplete && _blurryPhotoSamples.isNotEmpty) {
+        // Navigate to Blurry Photos screen
+        final result = await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => BlurryPhotosScreen(
+              blurryPhotos: _blurryPhotoSamples,
+              totalCount: _blurryPhotoSamples.length,
+              totalSize: blurryPhotosSize,
             ),
           ),
+        );
         
-        // Show blurry photos grid after analysis is complete
-        if (_blurryPhotosAnalysisComplete && _blurryPhotoSamples.isNotEmpty)
-          Padding(
-            padding: EdgeInsets.all(8.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: EdgeInsets.only(left: 8, bottom: 8),
-                  child: Text('Sample of blurry photos:',
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+        if (result == true) {
+          print('🔄 Blurry photos were deleted, refreshing blurry photos only...');
+          await refreshPhotoData(analysisType: 'blurry'); // Only refresh blurry photos
+        }
+      } else if (_blurryPhotosAnalysisComplete && _blurryPhotoSamples.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No blurry photos found! 🎉'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else if (_blurryPhotosAnalysisProgress == 0) {
+        print('🔍 Starting blurry photos analysis...');
+        _startBlurryPhotosAnalysis();
+      }
+    },
+    
+    child: Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _blurryPhotosAnalysisProgress > 0 && !_blurryPhotosAnalysisComplete 
+                          ? 'Analyzing Blurry Photos...' 
+                          : 'Blurry Photos',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _blurryPhotosAnalysisProgress > 0 && !_blurryPhotosAnalysisComplete
+                        ? 'Progress: ${(_blurryPhotosAnalysisProgress * 100).toInt()}%'
+                        : _blurryPhotosAnalysisComplete && _blurryPhotoSamples.isNotEmpty
+                          ? '${_blurryPhotoSamples.length} blurry photos • ${blurryPhotosSize.toStringAsFixed(1)}GB'
+                          : _blurryPhotosAnalysisComplete 
+                            ? 'No blurry photos found'
+                            : 'Tap to find blurry photos',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ],
                 ),
-                Container(
-                  height: 120,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: math.min(6, _blurryPhotoSamples.length),
-                    itemBuilder: (context, index) {
-                      return Padding(
-                        padding: EdgeInsets.only(right: 8),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: _buildBlurryThumbnail(_blurryPhotoSamples[index]),
-                        ),
-                      );
-                    },
+              ),
+              if (_blurryPhotosAnalysisProgress > 0 && !_blurryPhotosAnalysisComplete)
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                  ),
+                )
+              else
+                Text(
+                  _blurryPhotoSamples.length.toString(),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.blue,
                   ),
                 ),
-                
-                // Button to view all blurry photos
-                if (_blurryPhotoSamples.length > 6)
-                  Padding(
-                    padding: EdgeInsets.only(top: 8, right: 8),
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton.icon(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => BlurryPhotosScreen(
-                                blurryPhotos: _blurryPhotoSamples,
-                                totalCount: _blurryPhotoSamples.length,
-                                totalSize: blurryPhotosSize,
-                              ),
-                            ),
-                          );
-                        },
-                        icon: Icon(Icons.photo_library),
-                        label: Text('View all ${_blurryPhotoSamples.length} photos'),
+              const SizedBox(width: 8),
+              const Icon(
+                Icons.chevron_right,
+                color: Colors.grey,
+                size: 20,
+              ),
+            ],
+          ),
+          
+          const SizedBox(height: 12),
+          
+          // Progress bar when analyzing
+          if (_blurryPhotosAnalysisProgress > 0 && !_blurryPhotosAnalysisComplete) ...[
+            LinearProgressIndicator(
+              value: _blurryPhotosAnalysisProgress,
+              backgroundColor: Colors.grey[300],
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
+            ),
+            const SizedBox(height: 12),
+          ],
+          
+          Container(
+            height: 80,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.grey[50],
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: _blurryPhotosAnalysisProgress > 0 && !_blurryPhotosAnalysisComplete
+              ? Center(
+                  child: Text(
+                    'Analyzing for blurry photos...',
+                    style: TextStyle(
+                      color: Colors.grey[500],
+                      fontSize: 14,
+                    ),
+                  ),
+                )
+              : (_blurryPhotosAnalysisComplete && _blurryPhotoSamples.isNotEmpty)
+                ? _buildBlurryPhotosContent()
+                : Center(
+                    child: Text(
+                      _blurryPhotosAnalysisComplete 
+                        ? 'No blurry photos found.'
+                        : 'Tap to find blurry photos.',
+                      style: TextStyle(
+                        color: Colors.grey[500],
+                        fontSize: 14,
                       ),
                     ),
                   ),
-              ],
-            ),
           ),
-        
-        // Show message when no blurry photos are found
-        if (_blurryPhotosAnalysisComplete && _blurryPhotoSamples.isEmpty)
-          Padding(
-            padding: EdgeInsets.all(16),
-            child: Center(
-              child: Column(
-                children: [
-                  Icon(Icons.check_circle_outline, color: Colors.green, size: 48),
-                  SizedBox(height: 8),
-                  Text('No blurry photos found!',
-                      style: TextStyle(fontWeight: FontWeight.w500)),
-                  Text('Your photo collection looks great',
-                      style: TextStyle(color: Colors.grey)),
-                ],
-              ),
-            ),
-          ),
-      ],
+        ],
+      ),
     ),
   );
 }
+
+// Add this helper method to display the blurry photos thumbnails
+Widget _buildBlurryPhotosContent() {
+  return Row(
+    children: [
+      // Display up to 3 blurry photo thumbnails
+      ...List.generate(
+        math.min(3, _blurryPhotoSamples.length),
+        (index) => Expanded(
+          child: Padding(
+            padding: EdgeInsets.only(right: index < 2 ? 4 : 0),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: _buildBlurryThumbnail(_blurryPhotoSamples[index]),
+            ),
+          ),
+        ),
+      ),
+      
+      // Add empty placeholders if less than 3 photos
+      ...List.generate(
+        math.max(0, 3 - _blurryPhotoSamples.length),
+        (index) => Expanded(
+          child: Padding(
+            padding: EdgeInsets.only(right: index < (2 - _blurryPhotoSamples.length) ? 4 : 0),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.grey[200],
+                borderRadius: BorderRadius.circular(6),
+              ),
+            ),
+          ),
+        ),
+      ),
+      
+      // Show "View More" button if there are more than 3 photos
+      if (_blurryPhotoSamples.length > 3)
+        Container(
+          width: 40,
+          margin: EdgeInsets.only(left: 4),
+          decoration: BoxDecoration(
+            color: Colors.blue.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Center(
+            child: Text(
+              '+${_blurryPhotoSamples.length - 3}',
+              style: TextStyle(
+                color: Colors.blue,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ),
+    ],
+  );
+}
+
 
 // Helper method to build thumbnails with proper error handling
 Widget _buildBlurryThumbnail(AssetEntity photo) {
@@ -3400,79 +3505,6 @@ Widget _buildBlurryThumbnail(AssetEntity photo) {
 
 // Helper method to build thumbnails with proper error handling
 
-Widget _buildBlurryPhotosContent() {
-  return Row(
-    children: [
-      // Show sample blurry photos
-      ...blurryPhotoSamples.take(3).map((photo) {
-        return Expanded(
-          child: Container(
-            margin: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  FutureBuilder<Uint8List?>(
-                    future: photo.thumbnailDataWithSize(
-                      const ThumbnailSize(200, 200),
-                    ),
-                    builder: (context, snapshot) {
-                      if (snapshot.hasData && snapshot.data != null) {
-                        return Image.memory(
-                          snapshot.data!,
-                          fit: BoxFit.cover,
-                        );
-                      }
-                      return Container(
-                        color: Colors.grey[300],
-                        child: const Center(
-                          child: Icon(Icons.image, color: Colors.grey),
-                        ),
-                      );
-                    },
-                  ),
-                  // Blur overlay indicator
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.orange.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: const Center(
-                      child: Icon(
-                        Icons.blur_on,
-                        color: Colors.white,
-                        size: 24,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      }).toList(),
-      
-      // Fill remaining space if less than 3 blurry photos
-      // This is the problematic part - ensure we never create a negative-sized list
-      ...List.generate(
-        math.max(0, 3 - blurryPhotoSamples.length), // Use math.max to ensure non-negative
-        (index) => Expanded(
-          child: Container(
-            margin: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              color: Colors.grey[200],
-              borderRadius: BorderRadius.circular(6),
-            ),
-          ),
-        ),
-      ),
-    ],
-  );
-}
 
   Widget _buildAnalysisCards() {
   return Column(
