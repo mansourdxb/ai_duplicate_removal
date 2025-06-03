@@ -4,8 +4,8 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'smart_cleaning_screen.dart';
 import '../screens/similar_photos_screen.dart';
-import '../models/similar_photo_group.dart'; // ✅ Keep this one
-import 'dart:typed_data'; // ✅ Keep this one
+import '../models/similar_photo_group.dart'; 
+import 'dart:typed_data';
 import '../models/duplicate_photo_group.dart'; 
 import 'duplicate_photos_screen.dart';
 import 'dart:convert';
@@ -14,6 +14,9 @@ import '../screens/screenshots_screen.dart';
 import 'package:image/image.dart' as img;
 import 'dart:math' as math;
 import '../screens/blurry_photos_screen.dart';
+import 'package:flutter/foundation.dart';
+
+import 'package:ai_duplicate_removal/screens/blurry_photos_screen.dart';
 
 
 class HomeScreen extends StatefulWidget {
@@ -23,6 +26,12 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
+class BlurAnalysisResult {
+  final bool isBlurry;
+  final double blurScore; // Higher score means more blur
+  
+  BlurAnalysisResult({required this.isBlurry, required this.blurScore});
+}
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   late AnimationController _progressController;
   late Animation<double> _progressAnimation;
@@ -40,6 +49,10 @@ bool isAnalyzingScreenshots = false;
 bool hasAnalyzedScreenshots = false;
 double _screenshotsAnalysisProgress = 0.0;
 
+// Add these variable declarations
+  bool _blurryPhotosAnalysisComplete = false;
+  double _blurryPhotosAnalysisProgress = 0.0;
+  List<AssetEntity> _blurryPhotoSamples = [];
 
 
   // State variables
@@ -78,158 +91,593 @@ int blurryPhotosCount = 0;
 double blurryPhotosSize = 0.0;
 bool isAnalyzingBlurry = false;
 bool hasAnalyzedBlurry = false;
-double _blurryPhotosAnalysisProgress = 0.0;
 
 
 // ✅ ADD this method to your _HomeScreenState class:
 
-Future<void> _startBlurryPhotosAnalysis() async {
-  if (isAnalyzingBlurry) {
-    print('🔍 Blurry analysis already in progress');
-    return;
-  }
-
-  print('🔍 Starting blurry photos analysis...');
+// Create this helper function for the compute isolate
+bool computeBlurriness(Map<String, dynamic> data) {
+  final Uint8List thumbData = data['thumbData'];
+  final img.Image? image = img.decodeImage(thumbData);
+  if (image == null) return false;
   
-  setState(() {
-    isAnalyzingBlurry = true;
-    hasAnalyzedBlurry = false;
-    _blurryPhotosAnalysisProgress = 0.0;
-    allBlurryPhotos.clear();
-    blurryPhotoSamples.clear();
-    blurryPhotosCount = 0;
-    blurryPhotosSize = 0.0;
-  });
-
-  try {
-    // Get all photos
-    final PermissionState ps = await PhotoManager.requestPermissionExtend();
-    if (!ps.isAuth) {
-      print('❌ Permission denied for blurry analysis');
-      setState(() {
-        isAnalyzingBlurry = false;
-      });
-      return;
-    }
-
-    final List<AssetPathEntity> albums = await PhotoManager.getAssetPathList(
-      type: RequestType.image,
-      onlyAll: true,
-    );
-
-    if (albums.isEmpty) {
-      print('📷 No albums found for blurry analysis');
-      setState(() {
-        isAnalyzingBlurry = false;
-        hasAnalyzedBlurry = true;
-      });
-      return;
-    }
-
-    final AssetPathEntity allPhotosAlbum = albums.first;
-    final int totalPhotoCount = await allPhotosAlbum.assetCountAsync;
-    
-    if (totalPhotoCount == 0) {
-      print('📷 No photos found for blurry analysis');
-      setState(() {
-        isAnalyzingBlurry = false;
-        hasAnalyzedBlurry = true;
-      });
-      return;
-    }
-
-    print('🔍 Found $totalPhotoCount photos to analyze for blur');
-
-    List<AssetEntity> detectedBlurryPhotos = [];
-    const int batchSize = 50;
-    int processedCount = 0;
-
-    // Process photos in batches
-    for (int i = 0; i < totalPhotoCount; i += batchSize) {
-      if (!isAnalyzingBlurry) break; // Stop if analysis was cancelled
+  // Convert to grayscale for better blur detection
+  final img.Image grayscale = img.grayscale(image);
+  
+  // Laplacian kernel for edge detection
+  final List<List<int>> laplacianKernel = [
+    [0, -1, 0],
+    [-1, 4, -1],
+    [0, -1, 0],
+  ];
+  
+  List<double> laplacianValues = [];
+  
+  // Apply Laplacian filter (skip borders and sample every other pixel for speed)
+  for (int y = 1; y < grayscale.height - 1; y += 2) {
+    for (int x = 1; x < grayscale.width - 1; x += 2) {
+      double sum = 0.0;
       
-      final int end = (i + batchSize < totalPhotoCount) ? i + batchSize : totalPhotoCount;
-      final List<AssetEntity> batch = await allPhotosAlbum.getAssetListRange(start: i, end: end);
-      
-      for (final AssetEntity photo in batch) {
-        if (!isAnalyzingBlurry) break;
-        
-        try {
-          // Check if photo is blurry
-          final bool isBlurry = await _isPhotoBlurry(photo);
-          
-          if (isBlurry) {
-            detectedBlurryPhotos.add(photo);
-            print('🔍 Found blurry photo: ${photo.id}');
-          }
-          
-          processedCount++;
-          
-          // Update progress
-          if (mounted) {
-            setState(() {
-              _blurryPhotosAnalysisProgress = processedCount / totalPhotoCount;
-            });
-          }
-          
-        } catch (e) {
-          print('❌ Error analyzing photo ${photo.id} for blur: $e');
+      for (int ky = 0; ky < 3; ky++) {
+        for (int kx = 0; kx < 3; kx++) {
+          final pixel = grayscale.getPixel(x + kx - 1, y + ky - 1);
+          final intensity = img.getLuminance(pixel);
+          sum += intensity * laplacianKernel[ky][kx];
         }
       }
       
-      // Small delay to prevent UI blocking
-      await Future.delayed(const Duration(milliseconds: 10));
+      laplacianValues.add(sum.abs());
     }
-
-    if (mounted && isAnalyzingBlurry) {
-  // Calculate total size using estimation (faster approach)
-double totalSize = 0.0;
-for (final photo in detectedBlurryPhotos) {
-  int totalPixels = photo.width * photo.height;
-  double estimatedMB;
-  
-  if (totalPixels < 1000000) {
-    estimatedMB = 0.5;
-  } else if (totalPixels < 3000000) {
-    estimatedMB = 1.5;
-  } else if (totalPixels < 8000000) {
-    estimatedMB = 3.0;
-  } else if (totalPixels < 20000000) {
-    estimatedMB = 6.0;
-  } else {
-    estimatedMB = 12.0;
   }
   
-  totalSize += estimatedMB * 1024 * 1024; // Convert MB to bytes
+  if (laplacianValues.isEmpty) return false;
+  
+  // Calculate variance (simplified)
+  final double mean = laplacianValues.reduce((a, b) => a + b) / laplacianValues.length;
+  final double variance = laplacianValues
+      .map((value) => math.pow(value - mean, 2))
+      .reduce((a, b) => a + b) / laplacianValues.length;
+  
+  // Threshold for blur detection (adjust as needed)
+  return variance < 100.0;
 }
 
 
+// Replace your _startBlurryPhotosAnalysis method with this optimized version
+Future<void> _startBlurryPhotosAnalysis() async {
+  // Add debug logging
+  print('📸 Starting blurry photos analysis...');
+  
+  setState(() {
+    _blurryPhotosAnalysisComplete = false;
+    _blurryPhotosAnalysisProgress = 0.0;
+    _blurryPhotoSamples = [];
+  });
 
+  try {
+    // Get albums with a timeout to prevent hanging
+    final List<AssetPathEntity> albums = await PhotoManager.getAssetPathList(
+      type: RequestType.image,
+      hasAll: true,
+    ).timeout(Duration(seconds: 5), onTimeout: () => []);
+    
+    if (albums.isEmpty) {
+      print('📸 No albums found or timeout occurred');
       setState(() {
-        allBlurryPhotos = detectedBlurryPhotos;
-        blurryPhotosCount = detectedBlurryPhotos.length;
-        blurryPhotosSize = totalSize;
-        blurryPhotoSamples = detectedBlurryPhotos.take(6).toList();
-        isAnalyzingBlurry = false;
-        hasAnalyzedBlurry = true;
+        _blurryPhotosAnalysisComplete = true;
         _blurryPhotosAnalysisProgress = 1.0;
       });
-
-      print('✅ Blurry analysis complete: ${detectedBlurryPhotos.length} blurry photos found');
-      print('📊 Total size: ${(totalSize / (1024 * 1024)).toStringAsFixed(1)} MB');
+      return;
     }
-
+    
+    final allPhotosAlbum = albums.firstWhere(
+      (album) => album.isAll,
+      orElse: () => albums.first,
+    );
+    
+    // EXTREME OPTIMIZATION: Only process the most recent photos
+    // This drastically reduces processing time
+    final int maxPhotosToProcess = 500; // Only check the most recent 500 photos
+    
+    print('📸 Fetching recent photos...');
+    final List<AssetEntity> recentPhotos = await allPhotosAlbum.getAssetListRange(
+      start: 0,
+      end: maxPhotosToProcess,
+    );
+    
+    print('📸 Found ${recentPhotos.length} recent photos');
+    
+    // Process in small batches with very fast filtering
+    List<AssetEntity> potentiallyBlurryPhotos = [];
+    int processedCount = 0;
+    int batchSize = 20;
+    
+    for (int i = 0; i < recentPhotos.length; i += batchSize) {
+      final int end = math.min(i + batchSize, recentPhotos.length);
+      final batch = recentPhotos.sublist(i, end);
+      
+      // Process batch in parallel for speed
+      await Future.wait(
+        batch.map((photo) async {
+          // Super fast check based on simple metadata
+          if (await _isLikelyBlurryFastCheck(photo)) {
+            potentiallyBlurryPhotos.add(photo);
+          }
+          
+          processedCount++;
+          // Update progress less frequently to reduce UI overhead
+          if (processedCount % 50 == 0 || processedCount == recentPhotos.length) {
+            setState(() {
+              _blurryPhotosAnalysisProgress = processedCount / recentPhotos.length;
+            });
+          }
+        })
+      );
+      
+      // Yield to the UI thread occasionally
+      await Future.delayed(Duration.zero);
+    }
+    
+    print('📸 Found ${potentiallyBlurryPhotos.length} potentially blurry photos');
+    
+    // Take a limited sample for display
+    final sampleSize = math.min(potentiallyBlurryPhotos.length, 30);
+    final blurrySamples = potentiallyBlurryPhotos.isNotEmpty 
+        ? potentiallyBlurryPhotos.sublist(0, sampleSize) 
+        : <AssetEntity>[];
+    
+    setState(() {
+      _blurryPhotoSamples = blurrySamples;
+      _blurryPhotosAnalysisComplete = true;
+      _blurryPhotosAnalysisProgress = 1.0;
+    });
+    
+    print('📸 Analysis complete. Found ${blurrySamples.length} blurry photos');
   } catch (e) {
-    print('❌ Error during blurry photos analysis: $e');
-    if (mounted) {
-      setState(() {
-        isAnalyzingBlurry = false;
-        hasAnalyzedBlurry = true;
-      });
-    }
+    print('📸 Error in blurry photos analysis: $e');
+    setState(() {
+      _blurryPhotosAnalysisComplete = true;
+      _blurryPhotosAnalysisProgress = 1.0;
+    });
   }
 }
 
+// Ultra-fast check that only uses minimal metadata
+Future<bool> _isLikelyBlurryFastCheck(AssetEntity photo) async {
+  try {
+    // 1. Check for low light based on time (very fast)
+    final creationDate = photo.createDateTime;
+    if (creationDate != null) {
+      final hour = creationDate.hour;
+      if (hour < 6 || hour > 19) {
+        return true;
+      }
+    }
+    
+    // 2. Check for burst photos by name (very fast)
+    final title = photo.title;
+    if (title != null) {
+      if (title.contains('BURST') || 
+          title.contains('IMG_E') || 
+          title.contains('_COVER')) {
+        return true;
+      }
+    }
+    
+    // 3. Check for motion by looking at file name patterns
+    if (title != null) {
+      if (title.contains('MOTION') || title.contains('LIVE')) {
+        return true;
+      }
+    }
+    
+    // 4. Check resolution - extremely low or extremely high res photos
+    // are often problematic
+    final width = photo.width;
+    final height = photo.height;
+    if (width != 0 && height != 0) {
+      final megapixels = (width * height) / 1000000;
+      if (megapixels < 0.5 || megapixels > 20) {
+        return true;
+      }
+      
+      // Check for unusual aspect ratios (often panoramas or screenshots)
+      final aspectRatio = width / height;
+      if (aspectRatio < 0.5 || aspectRatio > 2.0) {
+        return true;
+      }
+    }
+    
+    return false;
+  } catch (e) {
+    print('Error in fast blur check: $e');
+    return false;
+  }
+}
+
+// OPTIMIZATION 4: Extremely fast metadata-only pre-filtering
+Future<bool> _isLikelyBlurryBasedOnMetadata(AssetEntity photo) async {
+  try {
+    // 1. Check file size relative to resolution
+    final file = await photo.file;
+    if (file != null) {
+      final fileSize = await file.length();
+      final megapixels = (photo.width * photo.height) / 1000000;
+      
+      if (megapixels > 0) {
+        final fileSizePerMegapixel = fileSize / megapixels;
+        
+        // If file size is unusually small for the resolution, it might be blurry
+        // (blurry images compress better)
+        if (fileSizePerMegapixel < 250000) { // 250KB per megapixel is low
+          return true;
+        }
+      }
+    }
+    
+    // 2. Check for low light conditions based on creation time
+    final creationDate = photo.createDateTime;
+    if (creationDate != null) {
+      final hour = creationDate.hour;
+      // Early morning or evening/night photos are often taken in low light
+      if (hour < 6 || hour > 18) {
+        return true;
+      }
+    }
+    
+    // 3. Check for burst photos (often contain motion blur)
+    final title = photo.title;
+    if (title != null) {
+      if (title.contains('IMG_E') || // iOS burst indicator
+          title.contains('BURST') || // Some Android burst indicator
+          (title.contains('IMG_') && title.contains('_COVER'))) { // Another burst indicator
+        return true;
+      }
+    }
+    
+    return false;
+  } catch (e) {
+    print('Error checking if photo is likely blurry: $e');
+    return false;
+  }
+}
+
+// Result class to hold blur analysis data
+
+
+// Multi-technique blur analysis
+Future<BlurAnalysisResult> _analyzePhotoBlur(AssetEntity photo) async {
+  try {
+    // Get image data with optimal size for analysis
+    final Uint8List? imageData = await photo.thumbnailDataWithSize(
+      const ThumbnailSize(250, 250), // Balanced size for performance and accuracy
+      quality: 80,
+    );
+    
+    if (imageData == null) return BlurAnalysisResult(isBlurry: false, blurScore: 0.0);
+    
+    // Decode image
+    final img.Image? image = img.decodeImage(imageData);
+    if (image == null) return BlurAnalysisResult(isBlurry: false, blurScore: 0.0);
+    
+    // Apply multiple blur detection techniques
+    final double laplacianScore = _calculateLaplacianScore(image);
+    final double gradientScore = _calculateGradientScore(image);
+    final double frequencyScore = _estimateFrequencyScore(image);
+    
+    // Weighted combination of scores (higher = more blur)
+    final double combinedScore = (laplacianScore * 0.5) + (gradientScore * 0.3) + (frequencyScore * 0.2);
+    
+    // Much more aggressive threshold
+    const double blurThreshold = 18.0; // Lower threshold to catch more blurry images
+    
+    return BlurAnalysisResult(
+      isBlurry: combinedScore < blurThreshold,
+      blurScore: combinedScore,
+    );
+  } catch (e) {
+    print('❌ Error in blur analysis: $e');
+    return BlurAnalysisResult(isBlurry: false, blurScore: 0.0);
+  }
+}
+
+// Laplacian variance method (primary method)
+double _calculateLaplacianScore(img.Image image) {
+  // Convert to grayscale
+  final img.Image grayscale = img.grayscale(image);
+  
+  // Laplacian variance calculation
+  List<double> edgeValues = [];
+  
+  // Sample every other pixel for performance
+  for (int y = 1; y < grayscale.height - 1; y += 2) {
+    for (int x = 1; x < grayscale.width - 1; x += 2) {
+      // Full Laplacian kernel
+      double center = img.getLuminance(grayscale.getPixel(x, y)).toDouble();
+      double left = img.getLuminance(grayscale.getPixel(x-1, y)).toDouble();
+      double right = img.getLuminance(grayscale.getPixel(x+1, y)).toDouble();
+      double top = img.getLuminance(grayscale.getPixel(x, y-1)).toDouble();
+      double bottom = img.getLuminance(grayscale.getPixel(x, y+1)).toDouble();
+      
+      // Simplified for performance but still effective
+      double edgeStrength = (4 * center - left - right - top - bottom).abs();
+      edgeValues.add(edgeStrength);
+    }
+  }
+  
+  if (edgeValues.isEmpty) return 100.0; // Not blurry if can't calculate
+  
+  // Calculate variance
+  double sum = 0;
+  for (double value in edgeValues) {
+    sum += value;
+  }
+  double mean = sum / edgeValues.length;
+  
+  double varianceSum = 0;
+  for (double value in edgeValues) {
+    varianceSum += (value - mean) * (value - mean);
+  }
+  double variance = varianceSum / edgeValues.length;
+  
+  return variance; // Higher variance = less blur
+}
+
+// Gradient magnitude method (secondary method)
+double _calculateGradientScore(img.Image image) {
+  // Convert to grayscale
+  final img.Image grayscale = img.grayscale(image);
+  
+  double totalGradient = 0.0;
+  int gradientCount = 0;
+  
+  // Calculate horizontal and vertical gradients
+  for (int y = 1; y < grayscale.height - 1; y += 3) {
+    for (int x = 1; x < grayscale.width - 1; x += 3) {
+      double horizontal = img.getLuminance(grayscale.getPixel(x+1, y)).toDouble() - 
+                          img.getLuminance(grayscale.getPixel(x-1, y)).toDouble();
+      double vertical = img.getLuminance(grayscale.getPixel(x, y+1)).toDouble() - 
+                        img.getLuminance(grayscale.getPixel(x, y-1)).toDouble();
+      
+      // Gradient magnitude
+      double magnitude = math.sqrt(horizontal * horizontal + vertical * vertical);
+
+      totalGradient += magnitude;
+      gradientCount++;
+    }
+  }
+  
+  if (gradientCount == 0) return 100.0;
+  
+  return totalGradient / gradientCount; // Higher gradient = less blur
+}
+
+// Frequency domain estimation (tertiary method)
+double _estimateFrequencyScore(img.Image image) {
+  // This is a simplified estimation of frequency content
+  // Real frequency analysis would use FFT which is too heavy for mobile
+  
+  // Convert to grayscale
+  final img.Image grayscale = img.grayscale(image);
+  
+  int highFreqCount = 0;
+  int totalSamples = 0;
+  
+  // Check for rapid changes in small neighborhoods
+  for (int y = 2; y < grayscale.height - 2; y += 4) {
+    for (int x = 2; x < grayscale.width - 2; x += 4) {
+      double center = img.getLuminance(grayscale.getPixel(x, y)).toDouble();
+      
+      // Check 8 surrounding pixels
+      List<double> neighbors = [
+        img.getLuminance(grayscale.getPixel(x-1, y-1)).toDouble(),
+        img.getLuminance(grayscale.getPixel(x, y-1)).toDouble(),
+        img.getLuminance(grayscale.getPixel(x+1, y-1)).toDouble(),
+        img.getLuminance(grayscale.getPixel(x-1, y)).toDouble(),
+        img.getLuminance(grayscale.getPixel(x+1, y)).toDouble(),
+        img.getLuminance(grayscale.getPixel(x-1, y+1)).toDouble(),
+        img.getLuminance(grayscale.getPixel(x, y+1)).toDouble(),
+        img.getLuminance(grayscale.getPixel(x+1, y+1)).toDouble(),
+      ];
+      
+      // Count significant differences (high frequency content)
+      for (double neighbor in neighbors) {
+        if ((center - neighbor).abs() > 15.0) { // Threshold for significant change
+          highFreqCount++;
+        }
+        totalSamples++;
+      }
+    }
+  }
+  
+  if (totalSamples == 0) return 100.0;
+  
+  // Return ratio of high frequency content
+  return (highFreqCount / totalSamples) * 100.0; // Higher = less blur
+}
+
+// Improved blur detection with better parameters
+Future<bool> _isPhotoBlurryImproved(AssetEntity photo) async {
+  try {
+    // Get image data with larger size for better detection
+    final Uint8List? imageData = await photo.thumbnailDataWithSize(
+      const ThumbnailSize(300, 300), // Larger size for better detection
+      quality: 85, // Higher quality
+    );
+    
+    if (imageData == null) return false;
+    
+    // Decode image
+    final img.Image? image = img.decodeImage(imageData);
+    if (image == null) return false;
+    
+    // Use improved blur detection algorithm
+    return _detectBlurImproved(image);
+    
+  } catch (e) {
+    print('❌ Error checking blur for photo ${photo.id}: $e');
+    return false;
+  }
+}
+
+// Improved blur detection with multiple methods
+bool _detectBlurImproved(img.Image image) {
+  // Convert to grayscale for better blur detection
+  final img.Image grayscale = img.grayscale(image);
+  
+  // 1. Laplacian variance calculation (main method)
+  List<double> edgeValues = [];
+  
+  // Sample more pixels (every 2nd pixel instead of every 3rd)
+  for (int y = 1; y < grayscale.height - 1; y += 2) {
+    for (int x = 1; x < grayscale.width - 1; x += 2) {
+      // Full Laplacian kernel for better edge detection
+      double center = img.getLuminance(grayscale.getPixel(x, y)).toDouble();
+      double left = img.getLuminance(grayscale.getPixel(x-1, y)).toDouble();
+      double right = img.getLuminance(grayscale.getPixel(x+1, y)).toDouble();
+      double top = img.getLuminance(grayscale.getPixel(x, y-1)).toDouble();
+      double bottom = img.getLuminance(grayscale.getPixel(x, y+1)).toDouble();
+      double topLeft = img.getLuminance(grayscale.getPixel(x-1, y-1)).toDouble();
+      double topRight = img.getLuminance(grayscale.getPixel(x+1, y-1)).toDouble();
+      double bottomLeft = img.getLuminance(grayscale.getPixel(x-1, y+1)).toDouble();
+      double bottomRight = img.getLuminance(grayscale.getPixel(x+1, y+1)).toDouble();
+      
+      // Full Laplacian calculation
+      double edgeStrength = (8 * center - left - right - top - bottom - topLeft - topRight - bottomLeft - bottomRight).abs();
+      edgeValues.add(edgeStrength);
+    }
+  }
+  
+  if (edgeValues.isEmpty) return false;
+  
+  // Calculate variance
+  double sum = 0;
+  for (double value in edgeValues) {
+    sum += value;
+  }
+  double mean = sum / edgeValues.length;
+  
+  double varianceSum = 0;
+  for (double value in edgeValues) {
+    varianceSum += (value - mean) * (value - mean);
+  }
+  double variance = varianceSum / edgeValues.length;
+  
+  // 2. Secondary check: Edge density
+  int edgeCount = 0;
+  for (double value in edgeValues) {
+    if (value > 20) { // Edge threshold
+      edgeCount++;
+    }
+  }
+  double edgeDensity = edgeCount / edgeValues.length;
+  
+  // Lower threshold for blur detection (was 50.0)
+  const double blurThreshold = 30.0; // More sensitive threshold
+  const double edgeDensityThreshold = 0.05; // Minimum edge density
+  
+  // Combined decision based on multiple factors
+  return variance < blurThreshold || edgeDensity < edgeDensityThreshold;
+}
+
+// Simplified blur detection that doesn't use compute() to avoid isolate issues
+Future<bool> _isPhotoBlurrySimple(AssetEntity photo) async {
+  try {
+    // Get image data with reduced size for faster processing
+    final Uint8List? imageData = await photo.thumbnailDataWithSize(
+      const ThumbnailSize(100, 100), // Even smaller size for faster processing
+      quality: 60,
+    );
+    
+    if (imageData == null) return false;
+    
+    // Decode image
+    final img.Image? image = img.decodeImage(imageData);
+    if (image == null) return false;
+    
+    // Use a simpler and faster blur detection algorithm
+    return _detectBlurFast(image);
+    
+  } catch (e) {
+    print('❌ Error checking blur for photo ${photo.id}: $e');
+    return false;
+  }
+}
+
+// Fast blur detection that skips pixels for speed
+bool _detectBlurFast(img.Image image) {
+  // Convert to grayscale for better blur detection
+  final img.Image grayscale = img.grayscale(image);
+  
+  // Simplified Laplacian variance calculation
+  // Sample fewer pixels (every 3rd pixel) for speed
+  List<double> edgeValues = [];
+  
+  for (int y = 1; y < grayscale.height - 1; y += 3) {
+    for (int x = 1; x < grayscale.width - 1; x += 3) {
+      // Simple edge detection kernel (faster than full Laplacian)
+      // Fixed: Using double instead of int for getLuminance() values
+      double center = img.getLuminance(grayscale.getPixel(x, y)).toDouble();
+      double left = img.getLuminance(grayscale.getPixel(x-1, y)).toDouble();
+      double right = img.getLuminance(grayscale.getPixel(x+1, y)).toDouble();
+      double top = img.getLuminance(grayscale.getPixel(x, y-1)).toDouble();
+      double bottom = img.getLuminance(grayscale.getPixel(x, y+1)).toDouble();
+      
+      // Calculate edge strength
+      double edgeStrength = (4 * center - left - right - top - bottom).abs();
+      edgeValues.add(edgeStrength);
+    }
+  }
+  
+  if (edgeValues.isEmpty) return false;
+  
+  // Calculate variance (simplified)
+  double sum = 0;
+  for (double value in edgeValues) {
+    sum += value;
+  }
+  double mean = sum / edgeValues.length;
+  
+  double varianceSum = 0;
+  for (double value in edgeValues) {
+    varianceSum += (value - mean) * (value - mean);
+  }
+  double variance = varianceSum / edgeValues.length;
+  
+  // Lower threshold for blur detection to catch more blurry images
+  const double blurThreshold = 50.0;
+  return variance < blurThreshold;
+}
+
+
+// Add this helper method to process a single photo
+Future<AssetEntity?> _processPhotoForBlur(AssetEntity photo) async {
+  try {
+    // Get image data with reduced size for faster processing
+    final Uint8List? imageData = await photo.thumbnailDataWithSize(
+      const ThumbnailSize(200, 200), // Smaller size for faster processing
+      quality: 70,
+    );
+    
+    if (imageData == null) return null;
+    
+    // Run blur detection in a separate isolate
+    final bool isBlurry = await compute(
+      computeBlurriness, 
+      {'thumbData': imageData}
+    );
+    
+    if (isBlurry) {
+      print('🔍 Found blurry photo: ${photo.id}');
+      return photo;
+    }
+    
+    return null;
+  } catch (e) {
+    print('❌ Error checking blur for photo ${photo.id}: $e');
+    return null;
+  }
+}
 // Method to detect if a photo is blurry
 Future<bool> _isPhotoBlurry(AssetEntity photo) async {
   try {
@@ -2810,160 +3258,147 @@ Future<List<SimilarPhotoGroup>> _findAndGroupSimilarPhotos(List<AssetEntity> all
   }
 
 Widget _buildBlurryPhotosCard() {
-  return GestureDetector(
-    onTap: () async {
-      print('📸 BLURRY UI: Card tapped');
-      
-      if (hasAnalyzedBlurry && blurryPhotosCount > 0) {
-        // Navigate to Blurry photos screen
-        final result = await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => BlurryPhotosScreen(
-              blurryPhotos: allBlurryPhotos,
-              totalCount: blurryPhotosCount,
-              totalSize: blurryPhotosSize / (1024 * 1024 * 1024), // Convert bytes to GB
-            ),
-          ),
-        );
+  return Card(
+    margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ListTile(
+          leading: Icon(Icons.blur_on, color: Theme.of(context).primaryColor),
+          title: Text('Blurry Photos', style: TextStyle(fontWeight: FontWeight.bold)),
+          subtitle: Text(_blurryPhotosAnalysisComplete 
+              ? '${_blurryPhotoSamples.length} potentially blurry photos found'
+              : 'Identify and remove blurry or out-of-focus images'),
+          trailing: _blurryPhotosAnalysisComplete 
+              ? Icon(Icons.check_circle, color: Colors.green)
+              : null,
+          onTap: _startBlurryPhotosAnalysis,
+        ),
         
-        if (result == true) {
-          print('🔄 Blurry photos were deleted, refreshing blurry only...');
-          await refreshPhotoData(analysisType: 'blurry');
-        }
-      } else if (hasAnalyzedBlurry && blurryPhotosCount == 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No blurry photos found! 🎉'),
-            backgroundColor: Colors.green,
+        // Show loading indicator during analysis
+        if (_blurryPhotosAnalysisProgress > 0 && !_blurryPhotosAnalysisComplete)
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                LinearProgressIndicator(value: _blurryPhotosAnalysisProgress),
+                SizedBox(height: 4),
+                Text('Analyzing photos: ${(_blurryPhotosAnalysisProgress * 100).toInt()}%',
+                    style: TextStyle(fontSize: 12, color: Colors.grey)),
+              ],
+            ),
           ),
-        );
-      } else if (!isAnalyzingBlurry) {
-        print('📸 Starting blurry photos analysis...');
-        _startBlurryPhotosAnalysis();
-      }
-    },
-    child: Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      isAnalyzingBlurry ? 'Analyzing Blurry Photos...' : 'Blurry',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      isAnalyzingBlurry 
-                        ? 'Progress: ${(_blurryPhotosAnalysisProgress * 100).toInt()}%'
-                        : hasAnalyzedBlurry && blurryPhotosCount > 0
-                          ? '$blurryPhotosCount photos • ${(blurryPhotosSize / (1024 * 1024)).toStringAsFixed(1)}MB'
-                          : hasAnalyzedBlurry 
-                            ? 'No blurry photos found'
-                            : 'Tap to find blurry photos',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                  ],
+        
+        // Show blurry photos grid after analysis is complete
+        if (_blurryPhotosAnalysisComplete && _blurryPhotoSamples.isNotEmpty)
+          Padding(
+            padding: EdgeInsets.all(8.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: EdgeInsets.only(left: 8, bottom: 8),
+                  child: Text('Sample of blurry photos:',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
                 ),
-              ),
-              if (isAnalyzingBlurry)
-                const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.orange),
-                  ),
-                )
-              else
-                Text(
-                  blurryPhotosCount.toString(),
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.orange,
+                Container(
+                  height: 120,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: math.min(6, _blurryPhotoSamples.length),
+                    itemBuilder: (context, index) {
+                      return Padding(
+                        padding: EdgeInsets.only(right: 8),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: _buildBlurryThumbnail(_blurryPhotoSamples[index]),
+                        ),
+                      );
+                    },
                   ),
                 ),
-              const SizedBox(width: 8),
-              const Icon(
-                Icons.chevron_right,
-                color: Colors.grey,
-                size: 20,
-              ),
-            ],
-          ),
-          
-          const SizedBox(height: 12),
-          
-          // Progress bar when analyzing
-          if (isAnalyzingBlurry) ...[
-            LinearProgressIndicator(
-              value: _blurryPhotosAnalysisProgress,
-              backgroundColor: Colors.grey[300],
-              valueColor: const AlwaysStoppedAnimation<Color>(Colors.orange),
-            ),
-            const SizedBox(height: 12),
-          ],
-          
-          Container(
-            height: 80,
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: Colors.grey[50],
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: isAnalyzingBlurry 
-              ? Center(
-                  child: Text(
-                    'Analyzing for blurry photos...',
-                    style: TextStyle(
-                      color: Colors.grey[500],
-                      fontSize: 14,
-                    ),
-                  ),
-                )
-              : (hasAnalyzedBlurry && blurryPhotosCount > 0)
-                ? _buildBlurryPhotosContent()
-                : Center(
-                    child: Text(
-                      hasAnalyzedBlurry 
-                        ? 'No blurry photos found.'
-                        : 'Tap to find blurry photos.',
-                      style: TextStyle(
-                        color: Colors.grey[500],
-                        fontSize: 14,
+                
+                // Button to view all blurry photos
+                if (_blurryPhotoSamples.length > 6)
+                  Padding(
+                    padding: EdgeInsets.only(top: 8, right: 8),
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => BlurryPhotosScreen(
+                                blurryPhotos: _blurryPhotoSamples,
+                                totalCount: _blurryPhotoSamples.length,
+                                totalSize: blurryPhotosSize,
+                              ),
+                            ),
+                          );
+                        },
+                        icon: Icon(Icons.photo_library),
+                        label: Text('View all ${_blurryPhotoSamples.length} photos'),
                       ),
                     ),
                   ),
+              ],
+            ),
           ),
-        ],
-      ),
+        
+        // Show message when no blurry photos are found
+        if (_blurryPhotosAnalysisComplete && _blurryPhotoSamples.isEmpty)
+          Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(
+              child: Column(
+                children: [
+                  Icon(Icons.check_circle_outline, color: Colors.green, size: 48),
+                  SizedBox(height: 8),
+                  Text('No blurry photos found!',
+                      style: TextStyle(fontWeight: FontWeight.w500)),
+                  Text('Your photo collection looks great',
+                      style: TextStyle(color: Colors.grey)),
+                ],
+              ),
+            ),
+          ),
+      ],
     ),
   );
 }
+
+// Helper method to build thumbnails with proper error handling
+Widget _buildBlurryThumbnail(AssetEntity photo) {
+  return Container(
+    width: 100,
+    height: 100,
+    decoration: BoxDecoration(
+      color: Colors.grey.shade200,
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: FutureBuilder<Uint8List?>(
+      future: photo.thumbnailData,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.done && snapshot.data != null) {
+          return Image.memory(
+            snapshot.data!,
+            fit: BoxFit.cover,
+          );
+        } else {
+          return Center(
+            child: snapshot.connectionState == ConnectionState.waiting
+                ? CircularProgressIndicator()
+                : Icon(Icons.image_not_supported, color: Colors.grey),
+          );
+        }
+      },
+    ),
+  );
+}
+
+// Helper method to build thumbnails with proper error handling
 
 Widget _buildBlurryPhotosContent() {
   return Row(
@@ -3022,8 +3457,9 @@ Widget _buildBlurryPhotosContent() {
       }).toList(),
       
       // Fill remaining space if less than 3 blurry photos
+      // This is the problematic part - ensure we never create a negative-sized list
       ...List.generate(
-        3 - blurryPhotoSamples.length,
+        math.max(0, 3 - blurryPhotoSamples.length), // Use math.max to ensure non-negative
         (index) => Expanded(
           child: Container(
             margin: const EdgeInsets.all(4),
