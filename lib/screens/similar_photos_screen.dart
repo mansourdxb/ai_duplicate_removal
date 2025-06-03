@@ -2,11 +2,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:photo_manager/photo_manager.dart';
 import '../models/similar_photo_group.dart';
-import 'dart:typed_data';
 import 'dart:math' as math; // ✅ Add this import
-import 'package:flutter/material.dart';
-import 'package:photo_manager/photo_manager.dart';
-import '../models/similar_photo_group.dart';
 import 'dart:async'; // ✅ ADD THIS if not already present
 
 class PhotoData {

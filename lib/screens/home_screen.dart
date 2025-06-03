@@ -4,10 +4,16 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'smart_cleaning_screen.dart';
 import '../screens/similar_photos_screen.dart';
-import '../models/similar_photo_group.dart';
-import 'dart:typed_data';
-import '../models/similar_photo_group.dart';
-// Make sure SimilarPhotoGroup model exists and has the correct structure
+import '../models/similar_photo_group.dart'; // ✅ Keep this one
+import 'dart:typed_data'; // ✅ Keep this one
+import '../models/duplicate_photo_group.dart'; 
+import 'duplicate_photos_screen.dart';
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
+import '../screens/screenshots_screen.dart';
+import 'package:image/image.dart' as img;
+import 'dart:math' as math;
+import '../screens/blurry_photos_screen.dart';
 
 
 class HomeScreen extends StatefulWidget {
@@ -22,6 +28,19 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   late Animation<double> _progressAnimation;
   List<SimilarPhotoGroup> similarPhotoGroups = [];
   bool isLoading = false; // Add this for the refresh loading state
+// Add this missing variable
+double _duplicatePhotosAnalysisProgress = 0.0;
+
+// Screenshot detection variables
+List<AssetEntity> allScreenshots = [];
+List<AssetEntity> screenshotSamples = [];
+int screenshotsCount = 0;
+double screenshotsSize = 0.0;
+bool isAnalyzingScreenshots = false;
+bool hasAnalyzedScreenshots = false;
+double _screenshotsAnalysisProgress = 0.0;
+
+
 
   // State variables
   bool isScanning = false;
@@ -43,16 +62,1372 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // Tab controller
   int selectedTab = 0;
   
-  @override
-  void initState() {
-    super.initState();
-    _initializeAnimations();
-    _checkPermissions();
-    _getStorageInfo();
-    // Start similar photos analysis on first launch
-    _startSimilarPhotosAnalysis();
+// Duplicate photos analysis variables
+bool isAnalyzingDuplicates = false;
+bool hasAnalyzedDuplicates = false;
+int duplicatePhotosCount = 0;
+double duplicatePhotosSize = 0.0;
+List<DuplicatePhotoGroup> duplicatePhotoGroups = [];
+List<AssetEntity> duplicatePhotoSamples = [];
+
+
+// Blurry photos analysis
+List<AssetEntity> allBlurryPhotos = [];
+List<AssetEntity> blurryPhotoSamples = [];
+int blurryPhotosCount = 0;
+double blurryPhotosSize = 0.0;
+bool isAnalyzingBlurry = false;
+bool hasAnalyzedBlurry = false;
+double _blurryPhotosAnalysisProgress = 0.0;
+
+
+// ✅ ADD this method to your _HomeScreenState class:
+
+Future<void> _startBlurryPhotosAnalysis() async {
+  if (isAnalyzingBlurry) {
+    print('🔍 Blurry analysis already in progress');
+    return;
   }
 
+  print('🔍 Starting blurry photos analysis...');
+  
+  setState(() {
+    isAnalyzingBlurry = true;
+    hasAnalyzedBlurry = false;
+    _blurryPhotosAnalysisProgress = 0.0;
+    allBlurryPhotos.clear();
+    blurryPhotoSamples.clear();
+    blurryPhotosCount = 0;
+    blurryPhotosSize = 0.0;
+  });
+
+  try {
+    // Get all photos
+    final PermissionState ps = await PhotoManager.requestPermissionExtend();
+    if (!ps.isAuth) {
+      print('❌ Permission denied for blurry analysis');
+      setState(() {
+        isAnalyzingBlurry = false;
+      });
+      return;
+    }
+
+    final List<AssetPathEntity> albums = await PhotoManager.getAssetPathList(
+      type: RequestType.image,
+      onlyAll: true,
+    );
+
+    if (albums.isEmpty) {
+      print('📷 No albums found for blurry analysis');
+      setState(() {
+        isAnalyzingBlurry = false;
+        hasAnalyzedBlurry = true;
+      });
+      return;
+    }
+
+    final AssetPathEntity allPhotosAlbum = albums.first;
+    final int totalPhotoCount = await allPhotosAlbum.assetCountAsync;
+    
+    if (totalPhotoCount == 0) {
+      print('📷 No photos found for blurry analysis');
+      setState(() {
+        isAnalyzingBlurry = false;
+        hasAnalyzedBlurry = true;
+      });
+      return;
+    }
+
+    print('🔍 Found $totalPhotoCount photos to analyze for blur');
+
+    List<AssetEntity> detectedBlurryPhotos = [];
+    const int batchSize = 50;
+    int processedCount = 0;
+
+    // Process photos in batches
+    for (int i = 0; i < totalPhotoCount; i += batchSize) {
+      if (!isAnalyzingBlurry) break; // Stop if analysis was cancelled
+      
+      final int end = (i + batchSize < totalPhotoCount) ? i + batchSize : totalPhotoCount;
+      final List<AssetEntity> batch = await allPhotosAlbum.getAssetListRange(start: i, end: end);
+      
+      for (final AssetEntity photo in batch) {
+        if (!isAnalyzingBlurry) break;
+        
+        try {
+          // Check if photo is blurry
+          final bool isBlurry = await _isPhotoBlurry(photo);
+          
+          if (isBlurry) {
+            detectedBlurryPhotos.add(photo);
+            print('🔍 Found blurry photo: ${photo.id}');
+          }
+          
+          processedCount++;
+          
+          // Update progress
+          if (mounted) {
+            setState(() {
+              _blurryPhotosAnalysisProgress = processedCount / totalPhotoCount;
+            });
+          }
+          
+        } catch (e) {
+          print('❌ Error analyzing photo ${photo.id} for blur: $e');
+        }
+      }
+      
+      // Small delay to prevent UI blocking
+      await Future.delayed(const Duration(milliseconds: 10));
+    }
+
+    if (mounted && isAnalyzingBlurry) {
+  // Calculate total size using estimation (faster approach)
+double totalSize = 0.0;
+for (final photo in detectedBlurryPhotos) {
+  int totalPixels = photo.width * photo.height;
+  double estimatedMB;
+  
+  if (totalPixels < 1000000) {
+    estimatedMB = 0.5;
+  } else if (totalPixels < 3000000) {
+    estimatedMB = 1.5;
+  } else if (totalPixels < 8000000) {
+    estimatedMB = 3.0;
+  } else if (totalPixels < 20000000) {
+    estimatedMB = 6.0;
+  } else {
+    estimatedMB = 12.0;
+  }
+  
+  totalSize += estimatedMB * 1024 * 1024; // Convert MB to bytes
+}
+
+
+
+      setState(() {
+        allBlurryPhotos = detectedBlurryPhotos;
+        blurryPhotosCount = detectedBlurryPhotos.length;
+        blurryPhotosSize = totalSize;
+        blurryPhotoSamples = detectedBlurryPhotos.take(6).toList();
+        isAnalyzingBlurry = false;
+        hasAnalyzedBlurry = true;
+        _blurryPhotosAnalysisProgress = 1.0;
+      });
+
+      print('✅ Blurry analysis complete: ${detectedBlurryPhotos.length} blurry photos found');
+      print('📊 Total size: ${(totalSize / (1024 * 1024)).toStringAsFixed(1)} MB');
+    }
+
+  } catch (e) {
+    print('❌ Error during blurry photos analysis: $e');
+    if (mounted) {
+      setState(() {
+        isAnalyzingBlurry = false;
+        hasAnalyzedBlurry = true;
+      });
+    }
+  }
+}
+
+// Method to detect if a photo is blurry
+Future<bool> _isPhotoBlurry(AssetEntity photo) async {
+  try {
+    // Get image data with reduced size for faster processing
+    final Uint8List? imageData = await photo.thumbnailDataWithSize(
+      const ThumbnailSize(400, 400), // Smaller size for faster processing
+      quality: 80,
+    );
+    
+    if (imageData == null) return false;
+    
+    // Decode image
+    final img.Image? image = img.decodeImage(imageData);
+    if (image == null) return false;
+    
+    // Calculate blur score using Laplacian variance
+    final double blurScore = _calculateLaplacianVariance(image);
+    
+    // Threshold for blur detection (lower = more blurry)
+    // You can adjust this value based on testing
+    const double blurThreshold = 100.0;
+    
+    final bool isBlurry = blurScore < blurThreshold;
+    
+    if (isBlurry) {
+      print('🔍 Blur score: ${blurScore.toStringAsFixed(2)} (threshold: $blurThreshold)');
+    }
+    
+    return isBlurry;
+    
+  } catch (e) {
+    print('❌ Error checking blur for photo ${photo.id}: $e');
+    return false;
+  }
+}
+
+// Calculate Laplacian variance to detect blur
+double _calculateLaplacianVariance(img.Image image) {
+  // Convert to grayscale for better blur detection
+  final img.Image grayscale = img.grayscale(image);
+  
+  // Laplacian kernel for edge detection
+  final List<List<int>> laplacianKernel = [
+    [0, -1, 0],
+    [-1, 4, -1],
+    [0, -1, 0],
+  ];
+  
+  List<double> laplacianValues = [];
+  
+  // Apply Laplacian filter (skip borders)
+  for (int y = 1; y < grayscale.height - 1; y++) {
+    for (int x = 1; x < grayscale.width - 1; x++) {
+      double sum = 0.0;
+      
+      for (int ky = 0; ky < 3; ky++) {
+        for (int kx = 0; kx < 3; kx++) {
+          final pixel = grayscale.getPixel(x + kx - 1, y + ky - 1);
+          final intensity = img.getLuminance(pixel);
+          sum += intensity * laplacianKernel[ky][kx];
+        }
+      }
+      
+      laplacianValues.add(sum.abs());
+    }
+  }
+  
+  if (laplacianValues.isEmpty) return 0.0;
+  
+  // Calculate variance
+  final double mean = laplacianValues.reduce((a, b) => a + b) / laplacianValues.length;
+  final double variance = laplacianValues
+      .map((value) => math.pow(value - mean, 2))
+      .reduce((a, b) => a + b) / laplacianValues.length;
+  
+  return variance;
+}
+
+
+void _debugRebuildUI() {
+  print('🔄 Debug: Forcing UI rebuild');
+  setState(() {
+    // Force rebuild
+  });
+}
+
+Future<void> _startScreenshotsAnalysis() async {
+  print('📱 STARTING screenshots analysis...');
+  
+  if (isAnalyzingScreenshots) {
+    print('⚠️ Screenshots analysis already running, skipping...');
+    return;
+  }
+  
+  setState(() {
+    isAnalyzingScreenshots = true;
+    _screenshotsAnalysisProgress = 0.0;
+  });
+
+  try {
+    // Request photo manager permission
+    final PermissionState ps = await PhotoManager.requestPermissionExtend();
+    if (!ps.hasAccess) {
+      setState(() {
+        isAnalyzingScreenshots = false;
+      });
+      return;
+    }
+
+    // Get all image assets
+    print('📱 Getting photos to analyze for screenshots...');
+    final List<AssetPathEntity> paths = await PhotoManager.getAssetPathList(
+      type: RequestType.image,
+      onlyAll: true,
+    );
+
+    if (paths.isNotEmpty) {
+      final AssetPathEntity allPhotos = paths.first;
+      final List<AssetEntity> assets = await allPhotos.getAssetListRange(
+        start: 0,
+        end: await allPhotos.assetCountAsync,
+      );
+      
+      print('📊 Found ${assets.length} photos to analyze for screenshots');
+      
+      if (assets.isEmpty) {
+        setState(() {
+          _screenshotsAnalysisProgress = 1.0;
+          isAnalyzingScreenshots = false;
+          hasAnalyzedScreenshots = true;
+        });
+        return;
+      }
+
+      // Find screenshots
+      List<AssetEntity> screenshots = await _findScreenshots(assets);
+      
+      // Calculate total size of screenshots
+      double totalSizeGB = await _calculateEstimatedSize(screenshots);
+      
+      // Get sample screenshots for display (first 3)
+      List<AssetEntity> samples = screenshots.take(3).toList();
+
+      setState(() {
+        allScreenshots = screenshots;
+        screenshotsCount = screenshots.length;
+        screenshotsSize = totalSizeGB;
+        screenshotSamples = samples;
+        _screenshotsAnalysisProgress = 1.0;
+        isAnalyzingScreenshots = false;
+        hasAnalyzedScreenshots = true;
+      });
+
+      print('✅ SCREENSHOTS: Analysis complete - ${screenshots.length} screenshots found');
+
+    } else {
+      setState(() {
+        isAnalyzingScreenshots = false;
+        hasAnalyzedScreenshots = true;
+        _screenshotsAnalysisProgress = 1.0;
+      });
+    }
+  } catch (e) {
+    print('❌ Error analyzing screenshots: $e');
+    setState(() {
+      isAnalyzingScreenshots = false;
+      hasAnalyzedScreenshots = true;
+      _screenshotsAnalysisProgress = 1.0;
+    });
+  }
+}
+
+
+Future<List<AssetEntity>> _findScreenshots(List<AssetEntity> assets) async {
+  List<AssetEntity> screenshots = [];
+  
+  for (int i = 0; i < assets.length; i++) {
+    final asset = assets[i];
+    
+    // Update progress
+    if (i % 100 == 0) {
+      setState(() {
+        _screenshotsAnalysisProgress = i / assets.length;
+      });
+    }
+    
+    try {
+      // Check if it's a screenshot based on multiple criteria
+      bool isScreenshot = await _isScreenshot(asset);
+      
+      if (isScreenshot) {
+        screenshots.add(asset);
+       // print('📱 Found screenshot: ${asset.title}');
+      }
+      
+    } catch (e) {
+      print('❌ Error checking screenshot for ${asset.id}: $e');
+    }
+  }
+  
+  return screenshots;
+}
+
+
+
+Future<bool> _isScreenshot(AssetEntity asset) async {
+  try {
+    // Method 1: Check filename patterns
+    String? title = asset.title;
+    if (title != null) {
+      String lowerTitle = title.toLowerCase();
+      
+      // Common screenshot filename patterns
+      List<String> screenshotPatterns = [
+        'screenshot',
+        'screen_shot',
+        'screen-shot',
+        'scrnshot',
+        'capture',
+        'screen_capture',
+        'screen-capture',
+      ];
+      
+      for (String pattern in screenshotPatterns) {
+        if (lowerTitle.contains(pattern)) {
+         // print('📱 Screenshot detected by filename: $title');
+          return true;
+        }
+      }
+      
+      // Android screenshot pattern: Screenshot_YYYYMMDD-HHMMSS
+      RegExp androidPattern = RegExp(r'screenshot_\d{8}-\d{6}');
+      if (androidPattern.hasMatch(lowerTitle)) {
+        //print('📱 Screenshot detected by Android pattern: $title');
+        return true;
+      }
+      
+      // iOS screenshot pattern: IMG_XXXX (but need to check dimensions)
+      if (lowerTitle.startsWith('img_') && lowerTitle.endsWith('.png')) {
+        // Check if dimensions match common screen resolutions
+        if (await _hasScreenshotDimensions(asset)) {
+          //print('📱 Screenshot detected by iOS pattern + dimensions: $title');
+          return true;
+        }
+      }
+    }
+    
+    // Method 2: Check if it's from Screenshots folder/album
+    // This is harder to detect reliably across different devices
+    
+    // Method 3: Check creation time patterns (screenshots often taken in quick succession)
+    // This could be implemented but might have false positives
+    
+    return false;
+    
+  } catch (e) {
+    print('❌ Error in screenshot detection: $e');
+    return false;
+  }
+}
+
+Future<bool> _hasScreenshotDimensions(AssetEntity asset) async {
+  try {
+    // Common mobile screen resolutions (width x height or height x width)
+    List<List<int>> commonScreenResolutions = [
+      // iPhone resolutions
+      [1170, 2532], [1125, 2436], [1242, 2688], [828, 1792], [750, 1334], [640, 1136],
+      // Android resolutions
+      [1080, 2340], [1080, 2400], [1440, 3200], [1440, 2960], [1080, 1920], [720, 1280],
+      // iPad resolutions
+      [1620, 2160], [1668, 2388], [1536, 2048], [1024, 1366],
+    ];
+    
+    int width = asset.width;
+    int height = asset.height;
+    
+    for (List<int> resolution in commonScreenResolutions) {
+      if ((width == resolution[0] && height == resolution[1]) ||
+          (width == resolution[1] && height == resolution[0])) {
+        return true;
+      }
+    }
+    
+    // Check for common aspect ratios that might be screenshots
+    double aspectRatio = width > height ? width / height : height / width;
+    
+    // Common mobile aspect ratios
+    List<double> commonAspectRatios = [16/9, 18/9, 19.5/9, 20/9, 4/3, 3/2];
+    
+    for (double ratio in commonAspectRatios) {
+      if ((aspectRatio - ratio).abs() < 0.1) {
+        // If it matches a mobile aspect ratio and is reasonably sized
+        int largerDimension = width > height ? width : height;
+        if (largerDimension >= 1000) { // Reasonable screen size
+          return true;
+        }
+      }
+    }
+    
+    return false;
+    
+  } catch (e) {
+    print('❌ Error checking screenshot dimensions: $e');
+    return false;
+  }
+}
+
+
+Widget _buildScreenshotsCard() {
+  return GestureDetector(
+    // ✅ UPDATE your screenshots card onTap:
+onTap: () async {
+  print('📱 SCREENSHOTS UI: Card tapped');
+  
+  if (hasAnalyzedScreenshots && screenshotsCount > 0) {
+    // Navigate to Screenshots screen
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ScreenshotsScreen(
+          screenshots: allScreenshots,
+          totalCount: screenshotsCount,
+          totalSize: screenshotsSize,
+        ),
+      ),
+    );
+    
+    if (result == true) {
+      print('🔄 Screenshots were deleted, refreshing screenshots only...');
+      await refreshPhotoData(analysisType: 'screenshots'); // ✅ Only screenshots
+    }
+  } else if (hasAnalyzedScreenshots && screenshotsCount == 0) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('No screenshots found! 🎉'),
+        backgroundColor: Colors.green,
+      ),
+    );
+  } else if (!isAnalyzingScreenshots) {
+    print('📱 Starting screenshots analysis...');
+    _startScreenshotsAnalysis();
+  }
+},
+
+    child: Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isAnalyzingScreenshots ? 'Analyzing Screenshots...' : 'Screenshots',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isAnalyzingScreenshots 
+                        ? 'Progress: ${(_screenshotsAnalysisProgress * 100).toInt()}%'
+                        : hasAnalyzedScreenshots && screenshotsCount > 0
+                          ? '$screenshotsCount screenshots • ${screenshotsSize.toStringAsFixed(1)}GB'
+                          : hasAnalyzedScreenshots 
+                            ? 'No screenshots found'
+                            : 'Tap to find screenshots',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (isAnalyzingScreenshots)
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                  ),
+                )
+              else
+                Text(
+                  screenshotsCount.toString(),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.blue,
+                  ),
+                ),
+              const SizedBox(width: 8),
+              const Icon(
+                Icons.chevron_right,
+                color: Colors.grey,
+                size: 20,
+              ),
+            ],
+          ),
+          
+          const SizedBox(height: 12),
+          
+          // Progress bar when analyzing
+          if (isAnalyzingScreenshots) ...[
+            LinearProgressIndicator(
+              value: _screenshotsAnalysisProgress,
+              backgroundColor: Colors.grey[300],
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
+            ),
+            const SizedBox(height: 12),
+          ],
+          
+          Container(
+            height: 80,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.grey[50],
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: isAnalyzingScreenshots 
+              ? Center(
+                  child: Text(
+                    'Analyzing for screenshots...',
+                    style: TextStyle(
+                      color: Colors.grey[500],
+                      fontSize: 14,
+                    ),
+                  ),
+                )
+              : (hasAnalyzedScreenshots && screenshotsCount > 0)
+                ? _buildScreenshotsContent()
+                : Center(
+                    child: Text(
+                      hasAnalyzedScreenshots 
+                        ? 'No screenshots found.'
+                        : 'Tap to find screenshots.',
+                      style: TextStyle(
+                        color: Colors.grey[500],
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+Widget _buildScreenshotsContent() {
+  return Row(
+    children: [
+      // Show sample screenshots
+      ...screenshotSamples.take(3).map((screenshot) {
+        return Expanded(
+          child: Container(
+            margin: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: FutureBuilder<Uint8List?>(
+                future: screenshot.thumbnailDataWithSize(
+                  const ThumbnailSize(200, 200),
+                ),
+                builder: (context, snapshot) {
+                  if (snapshot.hasData && snapshot.data != null) {
+                    return Image.memory(
+                      snapshot.data!,
+                      fit: BoxFit.cover,
+                      height: double.infinity,
+                      width: double.infinity,
+                    );
+                  }
+                  return Container(
+                    color: Colors.grey[300],
+                    child: const Center(
+                      child: Icon(Icons.image, color: Colors.grey),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+      
+      // Fill remaining space if less than 3 screenshots
+      ...List.generate(
+        3 - screenshotSamples.length,
+        (index) => Expanded(
+          child: Container(
+            margin: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: Colors.grey[200],
+              borderRadius: BorderRadius.circular(6),
+            ),
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
+
+String _getDuplicateStatusText() {
+  if (isAnalyzingDuplicates) {
+    return 'Analyzing photos...';
+  } else if (hasAnalyzedDuplicates) {
+    if (duplicatePhotosCount > 0) {
+      return 'Found $duplicatePhotosCount duplicate photos';
+    } else {
+      return 'No duplicates found';
+    }
+  } else {
+    return 'Tap to find duplicate photos';
+  }
+}
+
+// Start duplicate analysis
+Future<void> _startDuplicatePhotosAnalysis() async {
+  print('🚀 STARTING duplicate analysis...');
+  
+  if (isAnalyzingDuplicates) {
+    print('⚠️ Analysis already running, skipping...');
+    return;
+  }
+  
+  setState(() {
+    isAnalyzingDuplicates = true;
+    _duplicatePhotosAnalysisProgress = 0.0;
+  });
+
+  try {
+    // Request photo manager permission
+    final PermissionState ps = await PhotoManager.requestPermissionExtend();
+    if (!ps.hasAccess) {
+      setState(() {
+        isAnalyzingDuplicates = false;
+      });
+      return;
+    }
+
+    // Get all image assets - LIMIT TO 1000 FOR TESTING
+    print('📱 Getting photos (limited to 1000 for testing)...');
+    final List<AssetPathEntity> paths = await PhotoManager.getAssetPathList(
+      type: RequestType.image,
+      onlyAll: true,
+    );
+
+    if (paths.isNotEmpty) {
+      final AssetPathEntity allPhotos = paths.first;
+      
+      // LIMIT TO FIRST 1000 PHOTOS FOR TESTING
+      final List<AssetEntity> assets = await allPhotos.getAssetListRange(
+        start: 0,
+        end: 1000, // Test with fewer photos first
+      );
+      
+      print('📊 Found ${assets.length} photos to analyze');
+      
+      if (assets.isEmpty) {
+        setState(() {
+          _duplicatePhotosAnalysisProgress = 1.0;
+          isAnalyzingDuplicates = false;
+          hasAnalyzedDuplicates = true;
+        });
+        return;
+      }
+
+      // Find duplicate photos
+      List<DuplicatePhotoGroup> groups = await _findAndGroupDuplicatePhotosFixed(assets);
+      
+      // Extract all duplicate photos from groups
+      List<AssetEntity> allDuplicatePhotosList = [];
+      for (var group in groups) {
+        allDuplicatePhotosList.addAll(group.duplicatesToDelete);
+      }
+      
+      // Calculate total size of duplicate photos
+      double totalSizeGB = await _calculateEstimatedSize(allDuplicatePhotosList);
+      
+      // Get sample photos for display
+      List<AssetEntity> samples = [];
+      for (var group in groups) {
+        for (int i = 1; i < group.photos.length && samples.length < 3; i++) {
+          samples.add(group.photos[i]);
+        }
+      }
+
+      setState(() {
+        duplicatePhotoGroups = groups;
+        duplicatePhotosCount = allDuplicatePhotosList.length;
+        duplicatePhotosSize = totalSizeGB;
+        duplicatePhotoSamples = samples;
+        _duplicatePhotosAnalysisProgress = 1.0;
+        isAnalyzingDuplicates = false;
+        hasAnalyzedDuplicates = true;
+      });
+
+      print('✅ DUPLICATE: Analysis complete - ${groups.length} groups with ${allDuplicatePhotosList.length} total duplicates');
+
+    } else {
+      setState(() {
+        isAnalyzingDuplicates = false;
+        hasAnalyzedDuplicates = true;
+        _duplicatePhotosAnalysisProgress = 1.0;
+      });
+    }
+  } catch (e) {
+    print('❌ Error analyzing duplicate photos: $e');
+    setState(() {
+      isAnalyzingDuplicates = false;
+      hasAnalyzedDuplicates = true;
+      _duplicatePhotosAnalysisProgress = 1.0;
+    });
+  }
+}
+
+// Main duplicate detection algorithm using multiple approaches
+
+// Add this helper method to verify duplicates
+Future<bool> _verifyDuplicates(List<AssetEntity> photos) async {
+  if (photos.length < 2) return false;
+  
+  try {
+    // Get the first photo's properties as reference
+    AssetEntity reference = photos.first;
+    int refWidth = reference.width;
+    int refHeight = reference.height;
+    
+    // Check if all photos have same dimensions
+    for (int i = 1; i < photos.length; i++) {
+      AssetEntity photo = photos[i];
+      if (photo.width != refWidth || photo.height != refHeight) {
+        print('🔍 DUPLICATE: Different dimensions - not duplicates');
+        return false;
+      }
+    }
+    
+    // If same size AND same dimensions AND taken within short time frame, likely duplicates
+    DateTime refTime = reference.createDateTime;
+    for (int i = 1; i < photos.length; i++) {
+      DateTime photoTime = photos[i].createDateTime;
+      Duration timeDiff = photoTime.difference(refTime).abs();
+      
+      // Allow up to 10 seconds difference (for burst photos or quick succession)
+      if (timeDiff.inSeconds > 10) {
+        print('🔍 DUPLICATE: Time difference too large (${timeDiff.inSeconds}s) - not duplicates');
+        return false;
+      }
+    }
+    
+    print('✅ DUPLICATE: Verified as duplicates - same size, dimensions, and time');
+    return true;
+    
+  } catch (e) {
+    print('❌ DUPLICATE: Error verifying duplicates: $e');
+    return false;
+  }
+}
+
+// Add this new method
+Future<List<DuplicatePhotoGroup>> _findAndGroupDuplicatePhotosFixed(List<AssetEntity> allPhotos) async {
+  print('🔍 IDENTICAL: Starting FAST identical detection of ${allPhotos.length} photos');
+  
+  List<DuplicatePhotoGroup> groups = [];
+  
+  try {
+    // FASTER approach: Use file size + dimensions + filename
+    Map<String, List<AssetEntity>> signatureGroups = {};
+    
+    for (int i = 0; i < allPhotos.length; i++) {
+      var photo = allPhotos[i];
+      
+      try {
+        // Create signature without reading file content (much faster)
+        String signature = "${photo.width}x${photo.height}_${photo.title ?? 'unknown'}_${photo.modifiedDateTime?.millisecondsSinceEpoch ?? 0}";
+        
+        signatureGroups.putIfAbsent(signature, () => []).add(photo);
+        
+        // Update progress every 100 photos
+        if (i % 100 == 0) {
+          print('Processed ${i + 1}/${allPhotos.length}');
+          
+          // Update UI progress
+          if (mounted) {
+            setState(() {
+              _duplicatePhotosAnalysisProgress = (i + 1) / allPhotos.length;
+            });
+          }
+        }
+        
+      } catch (e) {
+        continue;
+      }
+    }
+    
+    print('🔍 IDENTICAL: Created ${signatureGroups.length} unique signatures');
+    
+    // Find groups with multiple photos
+    for (var entry in signatureGroups.entries) {
+      if (entry.value.length > 1) {
+        List<AssetEntity> duplicates = entry.value;
+        
+        print('✅ IDENTICAL: Found ${duplicates.length} identical photos');
+        
+        // Sort by creation time
+        duplicates.sort((a, b) {
+          if (a.createDateTime == null && b.createDateTime == null) return 0;
+          if (a.createDateTime == null) return 1;
+          if (b.createDateTime == null) return -1;
+          return a.createDateTime!.compareTo(b.createDateTime!);
+        });
+        
+        // Estimate size (much faster than reading files)
+        double estimatedSize = (duplicates.length - 1) * 0.003; // 3MB per photo estimate
+        
+        DuplicatePhotoGroup group = DuplicatePhotoGroup(
+          photos: duplicates,
+          originalIndex: 0,
+          selectedIndices: Set.from(List.generate(duplicates.length - 1, (i) => i + 1)),
+          duplicateType: 'Identical',
+          groupId: 'fast_${DateTime.now().millisecondsSinceEpoch}_${groups.length}',
+          totalSize: estimatedSize,
+          confidence: 0.95,
+        );
+        
+        groups.add(group);
+      }
+    }
+    
+    print('✅ IDENTICAL: Found ${groups.length} groups of identical photos');
+    return groups;
+    
+  } catch (e) {
+    print('❌ IDENTICAL: Error: $e');
+    return [];
+  }
+}
+
+// Method to compute file hash for identical detection
+Future<String?> _computePhotoHash(AssetEntity photo) async {
+  try {
+    // Get file data
+    File? file = await photo.file;
+    if (file == null) return null;
+    
+    // Read file bytes
+    List<int> bytes = await file.readAsBytes();
+    
+    // Compute MD5 hash of file content
+    var digest = md5.convert(bytes);
+    return digest.toString();
+    
+  } catch (e) {
+    print('Error computing hash for ${photo.id}: $e');
+    return null;
+  }
+}
+
+// Helper method to calculate group size
+Future<double> _calculateGroupSize(List<AssetEntity> photos, {bool excludeFirst = false}) async {
+  double totalSize = 0.0;
+  int startIndex = excludeFirst ? 1 : 0;
+  
+  for (int i = startIndex; i < photos.length; i++) {
+    var photo = photos[i];
+    int totalPixels = photo.width * photo.height;
+    
+    // Estimate file size based on resolution
+    double estimatedMB;
+    if (totalPixels < 1000000) {
+      estimatedMB = 0.5; // Low res
+    } else if (totalPixels < 3000000) {
+      estimatedMB = 1.5; // Medium res
+    } else if (totalPixels < 8000000) {
+      estimatedMB = 3.0; // High res
+    } else if (totalPixels < 20000000) {
+      estimatedMB = 6.0; // Very high res
+    } else {
+      estimatedMB = 12.0; // Ultra high res
+    }
+    
+    totalSize += estimatedMB;
+  }
+  
+  return totalSize / 1024; // Convert MB to GB
+}
+
+// Helper method to group photos by creation time
+Future<List<List<AssetEntity>>> _groupByCreationTime(List<AssetEntity> photos) async {
+  List<List<AssetEntity>> timeGroups = [];
+  
+  for (var photo in photos) {
+    if (photo.createDateTime == null) continue;
+    
+    bool addedToGroup = false;
+    
+    // Try to add to existing time group (within 60 seconds)
+    for (var timeGroup in timeGroups) {
+      if (timeGroup.isNotEmpty && timeGroup.first.createDateTime != null) {
+        Duration timeDiff = photo.createDateTime!.difference(timeGroup.first.createDateTime!).abs();
+        
+        if (timeDiff.inSeconds <= 60) { // Within 1 minute
+          timeGroup.add(photo);
+          addedToGroup = true;
+          break;
+        }
+      }
+    }
+    
+    // Create new time group if not added to existing
+    if (!addedToGroup) {
+      timeGroups.add([photo]);
+    }
+  }
+  
+  return timeGroups;
+}
+
+// Enhanced verification method
+Future<bool> _verifyRealDuplicates(List<AssetEntity> photos) async {
+  if (photos.length < 2) return false;
+  
+  try {
+    // Get reference photo properties
+    AssetEntity reference = photos.first;
+    int refWidth = reference.width;
+    int refHeight = reference.height;
+    DateTime? refTime = reference.createDateTime;
+    
+    print('🔍 DUPLICATE: Verifying ${photos.length} photos against reference:');
+    print('  - Dimensions: ${refWidth}x${refHeight}');
+    print('  - Time: $refTime');
+    
+    // Check each photo against reference
+    for (int i = 1; i < photos.length; i++) {
+      AssetEntity photo = photos[i];
+      
+      // Must have exact same dimensions
+      if (photo.width != refWidth || photo.height != refHeight) {
+        print('❌ DUPLICATE: Different dimensions - not duplicates');
+        return false;
+      }
+      
+      // Must be taken within reasonable time frame
+      if (refTime != null && photo.createDateTime != null) {
+        Duration timeDiff = photo.createDateTime!.difference(refTime).abs();
+        if (timeDiff.inMinutes > 5) { // Max 5 minutes apart
+          print('❌ DUPLICATE: Time difference too large (${timeDiff.inMinutes} minutes) - not duplicates');
+          return false;
+        }
+      }
+    }
+    
+    print('✅ DUPLICATE: Verified as true duplicates');
+    return true;
+    
+  } catch (e) {
+    print('❌ DUPLICATE: Error verifying duplicates: $e');
+    return false;
+  }
+}
+
+// Algorithm 1: Find exact duplicates (same file size and dimensions) [[2]](#__2)
+Future<void> _findExactDuplicates(
+  List<AssetEntity> allPhotos, 
+  List<DuplicatePhotoGroup> groups, 
+  Set<String> processedPhotoIds
+) async {
+  Map<String, List<AssetEntity>> exactMatches = {};
+  
+  for (var photo in allPhotos) {
+    if (processedPhotoIds.contains(photo.id)) continue;
+    
+    // Create unique key based on dimensions
+    String key = "${photo.width}x${photo.height}";
+    
+    if (!exactMatches.containsKey(key)) {
+      exactMatches[key] = [];
+    }
+    exactMatches[key]!.add(photo);
+  }
+  
+  int groupIndex = 0;
+  for (var entry in exactMatches.entries) {
+    if (entry.value.length >= 2) {
+      // Sort by creation date to keep the oldest as original
+      entry.value.sort((a, b) {
+        if (a.createDateTime == null && b.createDateTime == null) return 0;
+        if (a.createDateTime == null) return 1;
+        if (b.createDateTime == null) return -1;
+        return a.createDateTime!.compareTo(b.createDateTime!);
+      });
+      
+      // Calculate total size
+      double totalSize = 0.0;
+      for (var photo in entry.value) {
+        int pixels = photo.width * photo.height;
+        double estimatedMB = _estimatePhotoSizeForDuplicates(pixels);
+        totalSize += estimatedMB;
+      }
+      totalSize = totalSize / 1024; // Convert to GB
+      
+      groups.add(DuplicatePhotoGroup(
+        photos: entry.value,
+        originalIndex: 0, // Keep the first (oldest)
+        selectedIndices: Set.from(Iterable.generate(entry.value.length - 1, (i) => i + 1)),
+        duplicateType: 'exact',
+        groupId: 'exact_$groupIndex',
+        totalSize: totalSize,
+        confidence: 1.0, // Highest confidence
+      ));
+      
+      // Mark as processed
+      for (var photo in entry.value) {
+        processedPhotoIds.add(photo.id);
+      }
+      groupIndex++;
+    }
+  }
+  
+  print('🎯 Found ${groupIndex} exact duplicate groups');
+}
+
+// Algorithm 2: Find near-exact duplicates (same dimensions, close timestamps) [[1]](#__1)
+Future<void> _findNearExactDuplicates(
+  List<AssetEntity> allPhotos, 
+  List<DuplicatePhotoGroup> groups, 
+  Set<String> processedPhotoIds
+) async {
+  Map<String, List<AssetEntity>> nearMatches = {};
+  
+  for (var photo in allPhotos) {
+    if (processedPhotoIds.contains(photo.id) || photo.createDateTime == null) continue;
+    
+    // Group by dimensions and hour
+    String hourKey = "${photo.width}x${photo.height}_${photo.createDateTime!.year}-${photo.createDateTime!.month}-${photo.createDateTime!.day}-${photo.createDateTime!.hour}";
+    
+    if (!nearMatches.containsKey(hourKey)) {
+      nearMatches[hourKey] = [];
+    }
+    nearMatches[hourKey]!.add(photo);
+  }
+  
+  int groupIndex = 0;
+  for (var entry in nearMatches.entries) {
+    if (entry.value.length >= 2) {
+      // Further filter by close timestamps (within 10 minutes)
+      List<List<AssetEntity>> timeGroups = [];
+      
+      for (var photo in entry.value) {
+        bool addedToGroup = false;
+        
+        for (var timeGroup in timeGroups) {
+          if (timeGroup.isNotEmpty) {
+            Duration diff = photo.createDateTime!.difference(timeGroup.first.createDateTime!).abs();
+            if (diff.inMinutes <= 10) {
+              timeGroup.add(photo);
+              addedToGroup = true;
+              break;
+            }
+          }
+        }
+        
+        if (!addedToGroup) {
+          timeGroups.add([photo]);
+        }
+      }
+      
+      // Add groups with 2+ photos
+      for (var timeGroup in timeGroups) {
+        if (timeGroup.length >= 2) {
+          // Sort by file size (keep largest as original)
+          timeGroup.sort((a, b) {
+            int aPixels = a.width * a.height;
+            int bPixels = b.width * b.height;
+            return bPixels.compareTo(aPixels);
+          });
+          
+          double totalSize = 0.0;
+          for (var photo in timeGroup) {
+            int pixels = photo.width * photo.height;
+            double estimatedMB = _estimatePhotoSizeForDuplicates(pixels);
+            totalSize += estimatedMB;
+          }
+          totalSize = totalSize / 1024;
+          
+          groups.add(DuplicatePhotoGroup(
+            photos: timeGroup,
+            originalIndex: 0, // Keep the largest
+            selectedIndices: Set.from(Iterable.generate(timeGroup.length - 1, (i) => i + 1)),
+            duplicateType: 'near_exact',
+            groupId: 'near_exact_$groupIndex',
+            totalSize: totalSize,
+            confidence: 0.9, // High confidence
+          ));
+          
+          for (var photo in timeGroup) {
+            processedPhotoIds.add(photo.id);
+          }
+          groupIndex++;
+        }
+      }
+    }
+  }
+  
+  print('🎯 Found ${groupIndex} near-exact duplicate groups');
+}
+
+// Algorithm 3: Find resolution variants (same aspect ratio, different resolutions) [[3]](#__3)
+Future<void> _findResolutionVariants(
+  List<AssetEntity> allPhotos, 
+  List<DuplicatePhotoGroup> groups, 
+  Set<String> processedPhotoIds
+) async {
+  Map<String, List<AssetEntity>> aspectGroups = {};
+  
+  for (var photo in allPhotos) {
+    if (processedPhotoIds.contains(photo.id)) continue;
+    
+    double aspectRatio = photo.width / photo.height;
+    String aspectKey = (aspectRatio * 100).round().toString(); // Round to avoid floating point issues
+    
+    if (!aspectGroups.containsKey(aspectKey)) {
+      aspectGroups[aspectKey] = [];
+    }
+    aspectGroups[aspectKey]!.add(photo);
+  }
+  
+  int groupIndex = 0;
+  for (var entry in aspectGroups.entries) {
+    if (entry.value.length >= 2) {
+      // Group by creation time (within same day)
+      Map<String, List<AssetEntity>> dayGroups = {};
+      
+      for (var photo in entry.value) {
+        if (photo.createDateTime != null) {
+          String dayKey = "${photo.createDateTime!.year}-${photo.createDateTime!.month}-${photo.createDateTime!.day}";
+          
+          if (!dayGroups.containsKey(dayKey)) {
+            dayGroups[dayKey] = [];
+          }
+          dayGroups[dayKey]!.add(photo);
+        }
+      }
+      
+      for (var dayGroup in dayGroups.values) {
+        if (dayGroup.length >= 2) {
+          // Sort by resolution (keep highest resolution)
+          dayGroup.sort((a, b) {
+            int aPixels = a.width * a.height;
+            int bPixels = b.width * b.height;
+            return bPixels.compareTo(aPixels);
+          });
+          
+          double totalSize = 0.0;
+          for (var photo in dayGroup) {
+            int pixels = photo.width * photo.height;
+            double estimatedMB = _estimatePhotoSizeForDuplicates(pixels);
+            totalSize += estimatedMB;
+          }
+          totalSize = totalSize / 1024;
+          
+          groups.add(DuplicatePhotoGroup(
+            photos: dayGroup,
+            originalIndex: 0, // Keep highest resolution
+            selectedIndices: Set.from(Iterable.generate(dayGroup.length - 1, (i) => i + 1)),
+            duplicateType: 'resolution_variant',
+            groupId: 'resolution_$groupIndex',
+            totalSize: totalSize,
+            confidence: 0.7, // Medium confidence
+          ));
+          
+          for (var photo in dayGroup) {
+            processedPhotoIds.add(photo.id);
+          }
+          groupIndex++;
+        }
+      }
+    }
+  }
+  
+  print('🎯 Found ${groupIndex} resolution variant groups');
+}
+
+// Algorithm 4: Find filename pattern duplicates [[0]](#__0)
+Future<void> _findFilenameDuplicates(
+  List<AssetEntity> allPhotos, 
+  List<DuplicatePhotoGroup> groups, 
+  Set<String> processedPhotoIds
+) async {
+  Map<String, List<AssetEntity>> filenameGroups = {};
+  
+  for (var photo in allPhotos) {
+    if (processedPhotoIds.contains(photo.id)) continue;
+    
+    String? title = photo.title;
+    if (title != null && title.isNotEmpty) {
+      // Remove common suffixes and extensions
+      String baseFilename = title
+          .replaceAll(RegExp(r'_\d+\.(jpg|jpeg|png|gif)$', caseSensitive: false), '')
+          .replaceAll(RegExp(r'\.(jpg|jpeg|png|gif)$', caseSensitive: false), '')
+          .replaceAll(RegExp(r'_copy\d*$', caseSensitive: false), '')
+          .replaceAll(RegExp(r'_duplicate\d*$', caseSensitive: false), '');
+      
+      if (baseFilename.length >= 5) { // Only consider meaningful filenames
+        if (!filenameGroups.containsKey(baseFilename)) {
+          filenameGroups[baseFilename] = [];
+        }
+        filenameGroups[baseFilename]!.add(photo);
+      }
+    }
+  }
+  
+  int groupIndex = 0;
+  for (var entry in filenameGroups.entries) {
+    if (entry.value.length >= 2) {
+      // Sort by creation date (keep oldest)
+      entry.value.sort((a, b) {
+        if (a.createDateTime == null && b.createDateTime == null) return 0;
+        if (a.createDateTime == null) return 1;
+        if (b.createDateTime == null) return -1;
+        return a.createDateTime!.compareTo(b.createDateTime!);
+      });
+      
+      double totalSize = 0.0;
+      for (var photo in entry.value) {
+        int pixels = photo.width * photo.height;
+        double estimatedMB = _estimatePhotoSizeForDuplicates(pixels);
+        totalSize += estimatedMB;
+      }
+      totalSize = totalSize / 1024;
+      
+      groups.add(DuplicatePhotoGroup(
+        photos: entry.value,
+        originalIndex: 0, // Keep oldest
+        selectedIndices: Set.from(Iterable.generate(entry.value.length - 1, (i) => i + 1)),
+        duplicateType: 'filename_pattern',
+        groupId: 'filename_$groupIndex',
+        totalSize: totalSize,
+        confidence: 0.6, // Lower confidence
+      ));
+      
+      for (var photo in entry.value) {
+        processedPhotoIds.add(photo.id);
+      }
+      groupIndex++;
+    }
+  }
+  
+  print('🎯 Found ${groupIndex} filename pattern duplicate groups');
+}
+
+// Helper method for size estimation
+double _estimatePhotoSizeForDuplicates(int pixels) {
+  if (pixels < 1000000) return 0.5;
+  else if (pixels < 3000000) return 1.5;
+  else if (pixels < 8000000) return 3.0;
+  else if (pixels < 20000000) return 6.0;
+  else return 12.0;
+}
+
+
+@override
+void initState() {
+  super.initState();
+  _initializeAnimations();
+  _checkPermissions();
+  _getStorageInfo();
+  
+  // Start all analyses after the widget is built
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    _startSimilarPhotosAnalysis();
+    _startDuplicatePhotosAnalysis();
+    _startScreenshotsAnalysis();
+    _startBlurryPhotosAnalysis(); // ✅ Add this line
+  });
+}
   // Add this method to your _HomeScreenState class
   Future<void> _debugPhotoAnalysis() async {
     print('=== HOME SCREEN PHOTO DEBUG ===');
@@ -126,7 +1501,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         int totalPhotosInGroups = 0;
         for (var group in groups) {
           totalPhotosInGroups += group.photos.length;
-          print('   Group "${group.reason}": ${group.photos.length} photos');
+         // print('   Group "${group.reason}": ${group.photos.length} photos');
         }
         
         print('📊 Total photos in groups: $totalPhotosInGroups');
@@ -180,37 +1555,411 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     print('=== END HOME SCREEN DEBUG ===\n');
   }
 
-  // Add this method to your home screen class
-  // Replace your existing refreshPhotoData method with this:
-  Future<void> refreshPhotoData() async {
-    print('🔄 Refreshing photo data after deletion...');
-    
-    setState(() {
-      isAnalyzingSimilar = true; // Use your existing loading state
-    });
-    
-    try {
-      // Clear existing data
+// ✅ REPLACE your refreshPhotoData method with this selective version:
+Future<void> refreshPhotoData({String? analysisType}) async {
+  print('🔄 Refreshing photo data after deletion for: ${analysisType ?? "all"}');
+  
+  setState(() {
+    isLoading = true;
+  });
+  
+  try {
+    if (analysisType == null || analysisType == 'all') {
+      // Clear ALL data (for full refresh)
+      setState(() {
+        _clearAllAnalysisData();
+        isLoading = false;
+      });
+      
+      // Restart all analyses
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _startSimilarPhotosAnalysis();
+        _startDuplicatePhotosAnalysis();
+        _startScreenshotsAnalysis();
+      });
+      
+      _showRefreshMessage('All analyses restarted!');
+      
+    } else if (analysisType == 'screenshots') {
+      // Only clear screenshots data
+      setState(() {
+        allScreenshots.clear();
+        screenshotSamples.clear();
+        screenshotsCount = 0;
+        screenshotsSize = 0.0;
+        _screenshotsAnalysisProgress = 0.0;
+        isAnalyzingScreenshots = false;
+        hasAnalyzedScreenshots = false;
+        isLoading = false;
+      });
+      
+      // Only restart screenshots analysis
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _startScreenshotsAnalysis();
+      });
+      
+      _showRefreshMessage('Screenshots re-analyzing...');
+      
+    } else if (analysisType == 'similar') {
+      // Only clear similar photos data
       setState(() {
         similarPhotoGroups.clear();
         allSimilarPhotos.clear();
         similarPhotoSamples.clear();
         similarPhotosCount = 0;
         similarPhotosSize = 0.0;
-        hasAnalyzedSimilar = false;
-      });
-      
-      // Re-run your existing analysis method
-      await _startSimilarPhotosAnalysis();
-      
-      print('✅ Photo data refreshed successfully');
-    } catch (e) {
-      print('❌ Error refreshing photo data: $e');
-      setState(() {
         isAnalyzingSimilar = false;
+        hasAnalyzedSimilar = false;
+        isLoading = false;
       });
+      
+      // Only restart similar photos analysis
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _startSimilarPhotosAnalysis();
+      });
+      
+      _showRefreshMessage('Similar photos re-analyzing...');
+      
+    } else if (analysisType == 'duplicates') {
+      // Only clear duplicates data
+      setState(() {
+        duplicatePhotoGroups.clear();
+        duplicatePhotoSamples.clear();
+        duplicatePhotosCount = 0;
+        duplicatePhotosSize = 0.0;
+        _duplicatePhotosAnalysisProgress = 0.0;
+        isAnalyzingDuplicates = false;
+        hasAnalyzedDuplicates = false;
+        isLoading = false;
+      });
+      
+      // Only restart duplicates analysis
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _startDuplicatePhotosAnalysis();
+      });
+      
+      _showRefreshMessage('Duplicates re-analyzing...');
     }
+    else if (analysisType == 'blurry') {
+  // Only clear blurry photos data
+  setState(() {
+    allBlurryPhotos.clear();
+    blurryPhotoSamples.clear();
+    blurryPhotosCount = 0;
+    blurryPhotosSize = 0.0;
+    _blurryPhotosAnalysisProgress = 0.0;
+    isAnalyzingBlurry = false;
+    hasAnalyzedBlurry = false;
+    isLoading = false;
+  });
+  
+  // Only restart blurry photos analysis
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    _startBlurryPhotosAnalysis();
+  });
+  
+  _showRefreshMessage('Blurry photos re-analyzing...');
+}
+
+  } catch (e) {
+    print('❌ Error refreshing photo data: $e');
+    setState(() {
+      isLoading = false;
+    });
   }
+}
+
+// Helper method to clear all analysis data
+void _clearAllAnalysisData() {
+  // Clear duplicate data
+  duplicatePhotoGroups.clear();
+  duplicatePhotoSamples.clear();
+  duplicatePhotosCount = 0;
+  duplicatePhotosSize = 0.0;
+  _duplicatePhotosAnalysisProgress = 0.0;
+  isAnalyzingDuplicates = false;
+  hasAnalyzedDuplicates = false;
+  
+  // Clear similar photos
+  similarPhotoGroups.clear();
+  allSimilarPhotos.clear();
+  similarPhotoSamples.clear();
+  similarPhotosCount = 0;
+  similarPhotosSize = 0.0;
+  isAnalyzingSimilar = false;
+  hasAnalyzedSimilar = false;
+  
+  // Clear screenshots data
+  allScreenshots.clear();
+  screenshotSamples.clear();
+  screenshotsCount = 0;
+  screenshotsSize = 0.0;
+  _screenshotsAnalysisProgress = 0.0;
+  isAnalyzingScreenshots = false;
+  hasAnalyzedScreenshots = false;
+
+  // Clear blurry photos data
+allBlurryPhotos.clear();
+blurryPhotoSamples.clear();
+blurryPhotosCount = 0;
+blurryPhotosSize = 0.0;
+_blurryPhotosAnalysisProgress = 0.0;
+isAnalyzingBlurry = false;
+hasAnalyzedBlurry = false;
+}
+
+// Helper method to show refresh messages
+void _showRefreshMessage(String message) {
+  if (mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+}
+
+Widget _buildDuplicatePhotosCard() {
+  return GestureDetector(
+   // ✅ UPDATE your duplicates card onTap:
+onTap: () async {
+  print('🔍 DUPLICATE UI: Card tapped');
+  
+  if (hasAnalyzedDuplicates && duplicatePhotosCount > 0) {
+    if (duplicatePhotoGroups.isEmpty) {
+      print("❌ No duplicate groups available");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please analyze photos first'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    
+    List<SimilarPhotoGroup> convertedGroups = duplicatePhotoGroups.map((duplicateGroup) {
+      return SimilarPhotoGroup(
+        photos: duplicateGroup.photos,
+        bestPhotoIndex: duplicateGroup.originalIndex,
+        selectedIndices: duplicateGroup.selectedIndices,
+        reason: 'Duplicate: ${duplicateGroup.duplicateType}',
+        groupId: duplicateGroup.groupId,
+        totalSize: duplicateGroup.totalSize,
+      );
+    }).toList();
+    
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => DuplicatePhotosScreen(
+          preGroupedPhotos: convertedGroups,
+          totalCount: duplicatePhotosCount,
+          totalSize: duplicatePhotosSize,
+        ),
+      ),
+    );
+    
+    if (result == true) {
+      print('🔄 Duplicates were deleted, refreshing duplicates only...');
+      await refreshPhotoData(analysisType: 'duplicates'); // ✅ Only duplicates
+    }
+  } else if (!isAnalyzingDuplicates) {
+    print('🔍 Starting duplicate analysis...');
+    _startDuplicatePhotosAnalysis();
+  }
+},
+
+    child: Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isAnalyzingDuplicates ? 'Analyzing Duplicates...' : 'Duplicate',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isAnalyzingDuplicates 
+                        ? 'Progress: ${(_duplicatePhotosAnalysisProgress * 100).toInt()}%'
+                        : hasAnalyzedDuplicates && duplicatePhotosCount > 0
+                          ? '$duplicatePhotosCount photos in ${duplicatePhotoGroups.length} groups • ${duplicatePhotosSize.toStringAsFixed(1)}GB'
+                          : hasAnalyzedDuplicates 
+                            ? 'No duplicates found'
+                            : 'Tap to find duplicates',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (isAnalyzingDuplicates)
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.red),
+                  ),
+                )
+              else
+                Text(
+                  duplicatePhotosCount.toString(),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.red,
+                  ),
+                ),
+              const SizedBox(width: 8),
+              const Icon(
+                Icons.chevron_right,
+                color: Colors.grey,
+                size: 20,
+              ),
+            ],
+          ),
+          
+          const SizedBox(height: 12),
+          
+          // Add progress bar when analyzing
+          if (isAnalyzingDuplicates) ...[
+            LinearProgressIndicator(
+              value: _duplicatePhotosAnalysisProgress,
+              backgroundColor: Colors.grey[300],
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.red),
+            ),
+            const SizedBox(height: 12),
+          ],
+          
+          Container(
+            height: 80,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.grey[50],
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: isAnalyzingDuplicates 
+              ? Center(
+                  child: Text(
+                    'Analyzing ${(_duplicatePhotosAnalysisProgress * 1000).toInt()}/1000 photos...',
+                    style: TextStyle(
+                      color: Colors.grey[500],
+                      fontSize: 14,
+                    ),
+                  ),
+                )
+              : (hasAnalyzedDuplicates && duplicatePhotosCount > 0)
+                ? _buildDuplicatePhotosContent()
+                : Center(
+                    child: Text(
+                      hasAnalyzedDuplicates 
+                        ? 'No duplicates found.'
+                        : 'Tap to analyze for duplicates.',
+                      style: TextStyle(
+                        color: Colors.grey[500],
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+Widget _buildDuplicatePhotosContent() {
+  return Padding(
+    padding: const EdgeInsets.all(8.0),
+    child: Row(
+      children: [
+        // Show sample photos
+        ...duplicatePhotoSamples.take(3).map((photo) => 
+          Container(
+            width: 60,
+            height: 60,
+            margin: const EdgeInsets.only(right: 8),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              color: Colors.grey[300],
+              border: Border.all(color: Colors.red.withOpacity(0.3), width: 2),
+            ),
+            child: FutureBuilder<Uint8List?>(
+              future: photo.thumbnailData,
+              builder: (context, snapshot) {
+                if (snapshot.hasData && snapshot.data != null) {
+                  return ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: Image.memory(
+                      snapshot.data!,
+                      fit: BoxFit.cover,
+                      width: 56,
+                      height: 56,
+                    ),
+                  );
+                }
+                return Container(
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                );
+              },
+            ),
+          ),
+        ).toList(),
+        
+        // Show count if more photos
+        if (duplicatePhotosCount > 3)
+          Container(
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(
+              color: Colors.red.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.red.withOpacity(0.3)),
+            ),
+            child: Center(
+              child: Text(
+                '+${duplicatePhotosCount - 3}',
+                style: const TextStyle(
+                  color: Colors.red,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ),
+      ],
+    ),
+  );
+}
+
 
   void _initializeAnimations() {
     _progressController = AnimationController(
@@ -301,13 +2050,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   // UPDATED: Real similar photos analysis method with grouping
-  Future<void> _startSimilarPhotosAnalysis() async {
-    if (hasAnalyzedSimilar) return;
-    
-    setState(() {
-      isAnalyzingSimilar = true;
-    });
-
+ Future<void> _startSimilarPhotosAnalysis() async {
+  // Add this guard to prevent multiple simultaneous analyses
+  if (isAnalyzingSimilar) {
+    print('🔍 Similar photos analysis already in progress, skipping...');
+    return;
+  }
+  
+  setState(() {
+    isAnalyzingSimilar = true;
+    hasAnalyzedSimilar = false;
+  });
     // ADD THIS DEBUG CALL
     await _debugPhotoAnalysis();
 
@@ -1056,48 +2809,267 @@ Future<List<SimilarPhotoGroup>> _findAndGroupSimilarPhotos(List<AssetEntity> all
     );
   }
 
-  Widget _buildAnalysisCards() {
-    return Column(
-      children: [
-        // Enhanced Similar Photos Card with final results
-        _buildSimilarPhotosCard(),
+Widget _buildBlurryPhotosCard() {
+  return GestureDetector(
+    onTap: () async {
+      print('📸 BLURRY UI: Card tapped');
+      
+      if (hasAnalyzedBlurry && blurryPhotosCount > 0) {
+        // Navigate to Blurry photos screen
+        final result = await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => BlurryPhotosScreen(
+              blurryPhotos: allBlurryPhotos,
+              totalCount: blurryPhotosCount,
+              totalSize: blurryPhotosSize / (1024 * 1024 * 1024), // Convert bytes to GB
+            ),
+          ),
+        );
         
-        const SizedBox(height: 12),
-        
-        _buildAnalysisCard(
-          title: 'Duplicate',
-          subtitle: '0.0KB',
-          count: 0,
-        ),
-        
-        const SizedBox(height: 12),
-        
-        _buildAnalysisCard(
-          title: 'Screenshots',
-          subtitle: '0.0KB',
-          count: 0,
-        ),
+        if (result == true) {
+          print('🔄 Blurry photos were deleted, refreshing blurry only...');
+          await refreshPhotoData(analysisType: 'blurry');
+        }
+      } else if (hasAnalyzedBlurry && blurryPhotosCount == 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No blurry photos found! 🎉'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else if (!isAnalyzingBlurry) {
+        print('📸 Starting blurry photos analysis...');
+        _startBlurryPhotosAnalysis();
+      }
+    },
+    child: Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isAnalyzingBlurry ? 'Analyzing Blurry Photos...' : 'Blurry',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isAnalyzingBlurry 
+                        ? 'Progress: ${(_blurryPhotosAnalysisProgress * 100).toInt()}%'
+                        : hasAnalyzedBlurry && blurryPhotosCount > 0
+                          ? '$blurryPhotosCount photos • ${(blurryPhotosSize / (1024 * 1024)).toStringAsFixed(1)}MB'
+                          : hasAnalyzedBlurry 
+                            ? 'No blurry photos found'
+                            : 'Tap to find blurry photos',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (isAnalyzingBlurry)
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.orange),
+                  ),
+                )
+              else
+                Text(
+                  blurryPhotosCount.toString(),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.orange,
+                  ),
+                ),
+              const SizedBox(width: 8),
+              const Icon(
+                Icons.chevron_right,
+                color: Colors.grey,
+                size: 20,
+              ),
+            ],
+          ),
+          
+          const SizedBox(height: 12),
+          
+          // Progress bar when analyzing
+          if (isAnalyzingBlurry) ...[
+            LinearProgressIndicator(
+              value: _blurryPhotosAnalysisProgress,
+              backgroundColor: Colors.grey[300],
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.orange),
+            ),
+            const SizedBox(height: 12),
+          ],
+          
+          Container(
+            height: 80,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.grey[50],
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: isAnalyzingBlurry 
+              ? Center(
+                  child: Text(
+                    'Analyzing for blurry photos...',
+                    style: TextStyle(
+                      color: Colors.grey[500],
+                      fontSize: 14,
+                    ),
+                  ),
+                )
+              : (hasAnalyzedBlurry && blurryPhotosCount > 0)
+                ? _buildBlurryPhotosContent()
+                : Center(
+                    child: Text(
+                      hasAnalyzedBlurry 
+                        ? 'No blurry photos found.'
+                        : 'Tap to find blurry photos.',
+                      style: TextStyle(
+                        color: Colors.grey[500],
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
 
-        const SizedBox(height: 12),
-        
-        _buildAnalysisCard(
-          title: 'Blurry',
-          subtitle: '0.0KB',
-          count: 0,
+Widget _buildBlurryPhotosContent() {
+  return Row(
+    children: [
+      // Show sample blurry photos
+      ...blurryPhotoSamples.take(3).map((photo) {
+        return Expanded(
+          child: Container(
+            margin: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  FutureBuilder<Uint8List?>(
+                    future: photo.thumbnailDataWithSize(
+                      const ThumbnailSize(200, 200),
+                    ),
+                    builder: (context, snapshot) {
+                      if (snapshot.hasData && snapshot.data != null) {
+                        return Image.memory(
+                          snapshot.data!,
+                          fit: BoxFit.cover,
+                        );
+                      }
+                      return Container(
+                        color: Colors.grey[300],
+                        child: const Center(
+                          child: Icon(Icons.image, color: Colors.grey),
+                        ),
+                      );
+                    },
+                  ),
+                  // Blur overlay indicator
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Center(
+                      child: Icon(
+                        Icons.blur_on,
+                        color: Colors.white,
+                        size: 24,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+      
+      // Fill remaining space if less than 3 blurry photos
+      ...List.generate(
+        3 - blurryPhotoSamples.length,
+        (index) => Expanded(
+          child: Container(
+            margin: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: Colors.grey[200],
+              borderRadius: BorderRadius.circular(6),
+            ),
+          ),
         ),
-        const SizedBox(height: 20),
-        
-        _buildPermissionCard(),
-      ],
-    );
-  }
+      ),
+    ],
+  );
+}
+
+  Widget _buildAnalysisCards() {
+  return Column(
+    children: [
+      // Enhanced Similar Photos Card with final results
+      _buildSimilarPhotosCard(),
+      
+      const SizedBox(height: 12),
+      
+      _buildDuplicatePhotosCard(),
+      
+      const SizedBox(height: 12),
+      
+      _buildScreenshotsCard(), // ✅ Your custom screenshots card
+      
+      const SizedBox(height: 12),
+      
+      _buildBlurryPhotosCard(), // ✅ Add custom blurry photos card
+
+      
+      //const SizedBox(height: 20),
+      
+    // _buildPermissionCard(),
+    ],
+  );
+}
 
   // UPDATED: Enhanced Similar Photos Card with navigation to grouped photos
   Widget _buildSimilarPhotosCard() {
     return GestureDetector(
-     onTap: () async {
+   // ✅ UPDATE your similar photos card onTap:
+onTap: () async {
   if (hasAnalyzedSimilar && similarPhotosCount > 0) {
-    // Add this safety check:
     if (similarPhotoGroups.isEmpty) {
       print("❌ No groups available - run analysis first");
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1109,29 +3081,28 @@ Future<List<SimilarPhotoGroup>> _findAndGroupSimilarPhotos(List<AssetEntity> all
       return;
     }
     
-    // Navigate with correct variable names
-   // ✅ FIXED: Pass SimilarPhotoGroup list directly
-final result = await Navigator.push(
-  context,
-  MaterialPageRoute(
-    builder: (context) => SimilarPhotosScreen(
-      preGroupedPhotos: similarPhotoGroups, // Direct pass - no conversion needed
-      totalCount: similarPhotosCount,       
-      totalSize: similarPhotosSize,
-    ),
-  ),
-);
-
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute
+      (
+        builder: (context) => SimilarPhotosScreen(
+          preGroupedPhotos: similarPhotoGroups,
+          totalCount: similarPhotosCount,       
+          totalSize: similarPhotosSize,
+        ),
+      ),
+    );
     
-    // Handle return result
     if (result == true) {
-      print('🔄 Photos were deleted, refreshing home screen data...');
-      await refreshPhotoData();
+      print('🔄 Similar photos were deleted, refreshing similar only...');
+      await refreshPhotoData(analysisType: 'similar'); // ✅ Only similar photos
     }
+  } else if (!isAnalyzingSimilar) {
+    print('🔍 Starting similar photos analysis...');
+    _startSimilarPhotosAnalysis();
   }
 },
 
-      
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
