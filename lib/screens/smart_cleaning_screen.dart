@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
 import '../services/analysis_service.dart';  // This should be the correct path
-import '../services/storage_service.dart';   // If you're using storage service
 import 'cleaning_results_screen.dart';
 
 class SmartCleaningScreen extends StatefulWidget 

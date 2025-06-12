@@ -3,29 +3,23 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'smart_cleaning_screen.dart';
-import '../screens/similar_photos_screen.dart';
 import '../models/similar_photo_group.dart'; 
-import 'dart:typed_data';
 import '../models/duplicate_photo_group.dart'; 
-import 'duplicate_photos_screen.dart';
-import 'dart:convert';
-import 'package:crypto/crypto.dart';
-import '../screens/screenshots_screen.dart';
 import 'package:image/image.dart' as img;
 import 'dart:math' as math;
-import '../screens/blurry_photos_screen.dart';
-import 'package:flutter/foundation.dart';
-import '../screens/photos_screen.dart';  // Add this import
-import 'videos_screen.dart'; // Add this import
+import '../screens/photos_screen.dart';
+import 'videos_screen.dart';
 
-class HomeScreen extends StatefulWidget {
+class HomeScreen extends StatefulWidget 
+{
   const HomeScreen({Key? key}) : super(key: key);
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class BlurAnalysisResult {
+class BlurAnalysisResult 
+{
   final bool isBlurry;
   final double blurScore; // Higher score means more blur
   
