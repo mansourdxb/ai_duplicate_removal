@@ -35,6 +35,21 @@ class _DuplicateVideosScreenState extends State<DuplicateVideosScreen> {
     _initializeSelection();
   }
   
+
+  bool _areAllSelected() {
+  // Returns true if all possible (non-best) videos are selected
+  for (int groupIndex = 0; groupIndex < widget.duplicateGroups.length; groupIndex++) {
+    final group = widget.duplicateGroups[groupIndex];
+    final String groupId = 'group_$groupIndex';
+    if (group.length <= 1) continue;
+    // Should be all except the first (best)
+    if (selectedIndices[groupId]?.length != group.length - 1) {
+      return false;
+    }
+  }
+  return true;
+}
+
   void _initializeSelection() {
     // By default, select all duplicates (all videos except the first one in each group)
     for (int groupIndex = 0; groupIndex < widget.duplicateGroups.length; groupIndex++) {
@@ -191,241 +206,348 @@ Future<void> _deleteSelectedVideos() async {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black87),
-          onPressed: () {
-            Navigator.pop(context);
-          },
-        ),
-        title: const Text(
-          'Duplicate Videos',
-          style: TextStyle(
-            color: Colors.black87,
-            fontSize: 18,
+  backgroundColor: const Color(0xFFF8F9FA),
+  appBar: AppBar(
+    backgroundColor: Colors.transparent,
+    elevation: 0,
+    leading: IconButton(
+      icon: const Icon(Icons.arrow_back, color: Colors.black87),
+      onPressed: () => Navigator.pop(context),
+    ),
+    title: const Text(
+      'Duplicate',
+      style: TextStyle(
+        color: Colors.black87,
+        fontSize: 22,
+        fontWeight: FontWeight.bold,
+      ),
+    ),
+    centerTitle: true,
+    actions: [
+      TextButton(
+        onPressed: () {
+          setState(() {
+            final allSelected = _areAllSelected();
+            if (allSelected) {
+              // Deselect all
+              selectedIndices.clear();
+            } else {
+              // Select all (except best in each group)
+              for (int groupIndex = 0; groupIndex < widget.duplicateGroups.length; groupIndex++) {
+                final group = widget.duplicateGroups[groupIndex];
+                final String groupId = 'group_$groupIndex';
+                if (group.length > 1) {
+                  selectedIndices[groupId] = {};
+                  for (int videoIndex = 1; videoIndex < group.length; videoIndex++) {
+                    selectedIndices[groupId]!.add(videoIndex);
+                  }
+                }
+              }
+            }
+            _updateSelectionStats();
+          });
+        },
+        child: Text(
+          _areAllSelected() ? 'Deselect all' : 'Select all',
+          style: const TextStyle(
+            color: Colors.blue,
             fontWeight: FontWeight.w600,
+            fontSize: 16,
           ),
         ),
-        centerTitle: true,
       ),
-      body: isDeleting
-          ? const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+    ],
+  ),
+  body: isDeleting
+      ? const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Deleting selected videos...'),
+            ],
+          ),
+        )
+      : Column(
+          children: [
+            // Stats bar
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              color: Colors.white,
+              child: Row(
                 children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Deleting selected videos...'),
-                ],
-              ),
-            )
-          : Column(
-              children: [
-                // Stats bar
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  color: Colors.white,
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Found ${widget.duplicateGroups.length} duplicate groups',
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Total: ${widget.totalCount} videos • ${widget.totalSize}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.red.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Text(
-                          'Selected: $selectedCount ($selectedSize GB)',
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Found ${widget.duplicateGroups.length} duplicate',
                           style: const TextStyle(
-                            color: Colors.red,
+                            fontSize: 14,
                             fontWeight: FontWeight.w500,
-                            fontSize: 12,
                           ),
                         ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Total: ${widget.totalCount} videos • ${widget.totalSize}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Text(
+                      'Selected: $selectedCount (${selectedSize.toStringAsFixed(2)} GB)',
+
+                      style: const TextStyle(
+                        color: Colors.red,
+                        fontWeight: FontWeight.w500,
+                        fontSize: 12,
                       ),
-                    ],
+                    ),
                   ),
-                ),
-                
-                // Duplicate groups list
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: widget.duplicateGroups.length,
-                    padding: const EdgeInsets.all(12),
-                    itemBuilder: (context, index) {
-                      final group = widget.duplicateGroups[index];
-                      final String groupId = 'group_$index';
-                      
-                      if (group.length < 2) return const SizedBox.shrink();
-                      
-                      return _buildDuplicateGroupCard(group, groupId, index);
-                    },
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-      bottomNavigationBar: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, -2),
+            
+            // Duplicate groups list
+            Expanded(
+              child: ListView.builder(
+                itemCount: widget.duplicateGroups.length,
+                padding: const EdgeInsets.all(12),
+                itemBuilder: (context, index) {
+                  final group = widget.duplicateGroups[index];
+                  final String groupId = 'group_$index';
+                  
+                  if (group.length < 2) return const SizedBox.shrink();
+                  
+                  return _buildDuplicateGroupCard(group, groupId, index);
+                },
+              ),
             ),
           ],
         ),
-        child: SafeArea(
-          child: Row(
+  bottomNavigationBar: Padding(
+    padding: const EdgeInsets.all(16.0),
+    child: SafeArea(
+      child: SizedBox(
+        width: double.infinity,
+        height: 54,
+        child: ElevatedButton(
+          onPressed: selectedCount > 0 ? _deleteSelectedVideos : null,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.blue,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          child: const Text(
+            'Clean →',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ),
+      ),
+    ),
+  ),
+);
+
+  }
+  
+ Widget _buildDuplicateGroupCard(List<Video> group, String groupId, int groupIndex) {
+  double groupSize = group.fold(0.0, (sum, v) => sum + v.size);
+  return Container(
+    margin: const EdgeInsets.only(bottom: 16),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.07),
+          blurRadius: 8,
+          offset: const Offset(0, 2),
+        ),
+      ],
+    ),
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Row: count, size, deselect
+          Row(
             children: [
-              Expanded(
-                child: Text(
-                  'Selected: $selectedCount videos ($selectedSize GB)',
-                  style: const TextStyle(
+              Text(
+                '${group.length} Videos',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${(groupSize / 1024 / 1024).toStringAsFixed(2)} MB',
+                style: const TextStyle(
+                  color: Colors.grey,
+                  fontSize: 13,
+                ),
+              ),
+              const Spacer(),
+              GestureDetector(
+                onTap: () {
+                  setState(() {
+                    selectedIndices[groupId]?.clear();
+                    _updateSelectionStats();
+                  });
+                },
+                child: const Text(
+                  'Deselect all',
+                  style: TextStyle(
+                    color: Colors.blue,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
               ),
-              ElevatedButton(
-                onPressed: selectedCount > 0 ? _deleteSelectedVideos : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                child: const Text('Delete Selected'),
-              ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-  
-  Widget _buildDuplicateGroupCard(List<Video> group, String groupId, int groupIndex) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Group header
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    'Group ${groupIndex + 1}',
-                    style: const TextStyle(
-                      color: Colors.blue,
-                      fontWeight: FontWeight.w500,
-                      fontSize: 12,
+          const SizedBox(height: 10),
+          // Thumbnails Row
+          Row(
+            children: List.generate(group.length, (i) {
+              final video = group[i];
+              final isSelected = selectedIndices[groupId]?.contains(i) ?? false;
+              final isBest = i == 0;
+              return Expanded(
+                child: GestureDetector(
+                  onTap: isBest
+                      ? null
+                      : () => _toggleVideoSelection(groupId, i),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Stack(
+                      children: [
+                        AspectRatio(
+                          aspectRatio: 16 / 9,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: FutureBuilder<Uint8List?>(
+                              future: ThumbnailCache.generateAndCacheThumbnail(video.asset),
+                              builder: (context, snapshot) {
+                                if (snapshot.hasData && snapshot.data != null) {
+                                  return Image.memory(
+                                    snapshot.data!,
+                                    fit: BoxFit.cover,
+                                  );
+                                }
+                                return Container(
+                                  color: Colors.grey[300],
+                                  child: const Center(
+                                    child: Icon(Icons.videocam, color: Colors.grey),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                        // Play icon
+                        Positioned.fill(
+                          child: Center(
+                            child: Icon(
+                              Icons.play_circle_outline,
+                              color: Colors.white.withOpacity(0.85),
+                              size: 32,
+                            ),
+                          ),
+                        ),
+                        // Duration at top right
+                        Positioned(
+                          top: 6,
+                          right: 6,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.7),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              _formatDuration(video.duration),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                        // "Best" label on first video
+                        if (isBest)
+                          Positioned(
+                            bottom: 6,
+                            left: 6,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.green,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text(
+                                'Best',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        // Checkbox for selected (not on Best)
+                        if (!isBest)
+                          Positioned(
+                            top: 6,
+                            right: 6,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: isSelected ? Colors.blue : Colors.white,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: isSelected ? Colors.blue : Colors.grey,
+                                  width: 2,
+                                ),
+                              ),
+                              child: Icon(
+                                isSelected ? Icons.check : Icons.check_box_outline_blank,
+                                color: isSelected ? Colors.white : Colors.grey,
+                                size: 20,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  '${group.length} similar videos',
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 12,
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  'Duration: ${_formatDuration(group[0].duration)}',
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          
-          // Original video (always shown first, not selectable)
-          _buildVideoItem(
-            group[0], 
-            groupId, 
-            0, 
-            isOriginal: true,
-            isSelected: false,
-          ),
-          
-          // Divider
-          Divider(color: Colors.grey[200], height: 1),
-          
-          // Duplicate videos (selectable)
-          ...List.generate(
-            group.length - 1,
-            (i) {
-              final int videoIndex = i + 1;
-              final bool isSelected = selectedIndices[groupId]?.contains(videoIndex) ?? false;
-              
-              return Column(
-                children: [
-                  _buildVideoItem(
-                    group[videoIndex],
-                    groupId,
-                    videoIndex,
-                    isOriginal: false,
-                    isSelected: isSelected,
-                  ),
-                  if (videoIndex < group.length - 1)
-                    Divider(color: Colors.grey[200], height: 1),
-                ],
               );
-            },
+            }),
           ),
         ],
       ),
-    );
-  }
-  
+    ),
+  );
+}
+
+
   Widget _buildVideoItem(
     Video video, 
     String groupId, 

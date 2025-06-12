@@ -15,6 +15,7 @@ import '../utils/video_converter.dart';
 import 'dart:isolate';
 import 'package:flutter/foundation.dart';
 import '../utils/thumbnail_cache.dart';
+import 'dart:io' show Platform;
 
 class VideosScreen extends StatefulWidget 
 {
@@ -70,19 +71,58 @@ class _VideosScreenState extends State<VideosScreen> with TickerProviderStateMix
   bool hasAnalyzedShortVideos = false;
   double _shortVideosAnalysisProgress = 0.0;
 
-  @override
-  void initState() {
-    super.initState();
-    _initializeAnimations();
-    _checkPermissions();
-    
-    // Start all analyses after the widget is built
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _startDuplicateVideosAnalysis();
-      _startScreenRecordingsAnalysis();
-      _startShortVideosAnalysis();
-    });
+ @override
+void initState() {
+  super.initState();
+  _initializeAnimations();
+
+  _checkPermissions().then((_) {
+    if (hasStoragePermission) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _startDuplicateVideosAnalysis();
+        _startScreenRecordingsAnalysis();
+        _startShortVideosAnalysis();
+      });
+    }
+  });
+}
+
+Future<void> _checkPermissions() async {
+  try {
+    final status = await Permission.storage.status;
+    if (mounted) {
+      setState(() {
+        hasStoragePermission = status.isGranted;
+        isLoadingStorage = false;
+      });
+    }
+  } catch (e) {
+    print('Error checking permissions: $e');
+    if (mounted) {
+      setState(() {
+        hasStoragePermission = false;
+        isLoadingStorage = false;
+      });
+    }
   }
+}
+
+
+
+// Add these methods to your class
+Future<void> _preloadDuplicateThumbnails() async {
+  if (duplicateVideoSamples.isEmpty) return;
+
+  for (final video in duplicateVideoSamples) {
+    try {
+      await ThumbnailCache.getThumbnail('thumb_${video.id}');
+    } catch (e) {
+      debugPrint('Failed to load thumbnail: $e');
+    }
+  }
+}
+
+
 
   void _initializeAnimations() {
     _progressController = AnimationController(
@@ -103,25 +143,6 @@ class _VideosScreenState extends State<VideosScreen> with TickerProviderStateMix
     _progressController.forward();
   }
 
-  void _checkPermissions() async {
-    try {
-      final status = await Permission.storage.status;
-      if (mounted) {
-        setState(() {
-          hasStoragePermission = status.isGranted;
-          isLoadingStorage = false;
-        });
-      }
-    } catch (e) {
-      print('Error checking permissions: $e');
-      if (mounted) {
-        setState(() {
-          hasStoragePermission = false;
-          isLoadingStorage = false;
-        });
-      }
-    }
-  }
 
   void _requestPermissions() async {
     try {
@@ -303,6 +324,8 @@ Future<void> _analyzeDuplicatesInIsolate(List<AssetEntity> videos) async {
             isAnalyzingDuplicates = false;
             _duplicateVideosAnalysisProgress = 1.0;
           });
+          // Add this line immediately after the setState block above
+        _preloadDuplicateThumbnails();
         } else if (message.containsKey('error')) {
           print('Error in isolate: ${message['error']}');
           setState(() {
@@ -525,12 +548,12 @@ Future<File?> _getFileWithTimeout(AssetEntity asset, {Duration timeout = const D
 }
 
 Future<void> _startDuplicateVideosAnalysis() async {
+    print('DEBUG: _startDuplicateVideosAnalysis CALLED');
+  print('DEBUG: isAnalyzingDuplicates = $isAnalyzingDuplicates');
   if (isAnalyzingDuplicates) return;
-  
   setState(() {
     isAnalyzingDuplicates = true;
   });
-  
   try {
     print('🎬 Getting videos to analyze for duplicates...');
     
@@ -548,14 +571,25 @@ Future<void> _startDuplicateVideosAnalysis() async {
     
     // Ensure we're updating the state correctly
     if (mounted) {
-      setState(() {
+setState(() {
         // Update with your actual property names
         duplicateVideoGroups = results.groups;
-        duplicateVideosCount = results.totalCount;
-        duplicateVideosSize = results.totalSize;
-        hasAnalyzedDuplicates = true;
-        isAnalyzingDuplicates = false;
+        duplicateVideoSamples = duplicateVideoGroups
+    .expand((group) => group.videos)
+    .take(3)
+    .toList();
       });
+
+      await _preloadDuplicateThumbnails();
+
+      if (mounted) {
+        setState(() {
+          duplicateVideosCount = results.totalCount;
+          duplicateVideosSize = results.totalSize;
+          hasAnalyzedDuplicates = true;
+          isAnalyzingDuplicates = false;
+        });
+      }
     }
     
     print('✅ DUPLICATES: Analysis complete - $duplicateVideosCount duplicate videos found');
@@ -972,6 +1006,36 @@ Future<void> _findDuplicatesByThumbnail(List<AssetEntity> videos, List<Duplicate
   }
 }
 
+// Add this method to optimize thumbnail quality
+ThumbnailSize _getThumbnailSize() {
+  // Adjust based on device performance or screen size
+  if (Platform.isIOS) {
+    // Higher quality for iOS devices
+    return const ThumbnailSize(240, 240);
+  } else {
+    // Standard quality for other devices
+    return const ThumbnailSize(200, 200);
+  }
+}
+
+Future<Uint8List?> _getCachedThumbnail(AssetEntity video) async {
+  final String cacheKey = 'thumb_${video.id}';
+  
+  final Uint8List? cachedThumb = await ThumbnailCache.getThumbnail(cacheKey);
+  if (cachedThumb != null) {
+    return cachedThumb;
+  }
+  
+  final Uint8List? thumb = await video.thumbnailDataWithSize(
+    const ThumbnailSize(200, 200),
+  );
+  
+  if (thumb != null) {
+    await ThumbnailCache.setThumbnail(cacheKey, thumb);
+  }
+  
+  return thumb;
+}
 Future<Uint8List?> _getVideoThumbnail(AssetEntity video) async {
   try {
     print('🖼️ Generating thumbnail for video ${video.id}');
@@ -1628,52 +1692,133 @@ void _debugWidgetTree() {
 }
 
 Widget _buildDuplicateVideosCard() {
-  return Card(
-    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-    child: InkWell(
-      onTap: () => _handleDuplicateVideosCardTap(),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min, // Important to prevent overflow
-                children: [
-                  Text(
-                    hasAnalyzedDuplicates 
-                      ? "Duplicate Videos ($duplicateVideosCount)" 
-                      : "Find Duplicate Videos",
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                  if (hasAnalyzedDuplicates)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4.0),
-                      child: Text(
-                        "Potential space savings: ${duplicateVideosSize.toStringAsFixed(1)} GB",
-                        style: TextStyle(fontSize: 14),
+  return GestureDetector(
+    onTap: () => _handleDuplicateVideosCardTap(),
+    child: Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isAnalyzingDuplicates ? 'Analyzing Duplicate Videos...' : 'Duplicate Videos',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.black87,
                       ),
                     ),
-                ],
+                    const SizedBox(height: 4),
+                    Text(
+                      isAnalyzingDuplicates 
+                        ? 'Progress: ${(_duplicateVideosAnalysisProgress * 100).toInt()}%'
+                        : hasAnalyzedDuplicates && duplicateVideosCount > 0
+                          ? '$duplicateVideosCount duplicate videos • ${duplicateVideosSize.toStringAsFixed(1)}GB'
+                          : hasAnalyzedDuplicates 
+                            ? 'No duplicate videos found'
+                            : 'Tap to find duplicate videos',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
               ),
+              if (isAnalyzingDuplicates)
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.red),
+                  ),
+                )
+              else
+                Text(
+                  duplicateVideosCount.toString(),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.red,
+                  ),
+                ),
+              const SizedBox(width: 8),
+              const Icon(
+                Icons.chevron_right,
+                color: Colors.grey,
+                size: 20,
+              ),
+            ],
+          ),
+          
+          const SizedBox(height: 12),
+          
+          // Progress bar when analyzing
+          if (isAnalyzingDuplicates) ...[
+            LinearProgressIndicator(
+              value: _duplicateVideosAnalysisProgress,
+              backgroundColor: Colors.grey[300],
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.red),
             ),
-            isAnalyzingDuplicates
-                ? SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Icon(Icons.chevron_right),
+            const SizedBox(height: 12),
           ],
-        ),
+          
+          Container(
+            height: 80,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.grey[50],
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: isAnalyzingDuplicates 
+              ? Center(
+                  child: Text(
+                    'Analyzing for duplicate videos...',
+                    style: TextStyle(
+                      color: Colors.grey[500],
+                      fontSize: 14,
+                    ),
+                  ),
+                )
+              : (hasAnalyzedDuplicates && duplicateVideosCount > 0)
+                ? _buildDuplicateVideosContent()
+                : Center(
+                    child: Text(
+                      hasAnalyzedDuplicates 
+                        ? 'No duplicate videos found.'
+                        : 'Tap to find duplicate videos.',
+                      style: TextStyle(
+                        color: Colors.grey[500],
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+          ),
+        ],
       ),
     ),
   );
+}
+
+// Add this helper function if you don't already have it
+String _formatDuration(int seconds) {
+  return '${seconds}s';
 }
 
 Future<void> _handleDuplicateVideosCardTap() async {
@@ -1718,101 +1863,137 @@ Future<void> _handleDuplicateVideosCardTap() async {
   }
 }
 
-
 Widget _buildDuplicateVideosContent() {
-  return Padding(
-    padding: const EdgeInsets.all(8.0),
-    child: Row(
-      children: [
-        // Show sample videos with ThumbnailCache
-        ...duplicateVideoSamples.take(3).map((video) => 
-          Container(
-            width: 60,
-            height: 60,
-            margin: const EdgeInsets.only(right: 8),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              color: Colors.grey[300],
-              border: Border.all(color: Colors.red.withOpacity(0.3), width: 2),
-            ),
-            child: Stack(
-              children: [
-                FutureBuilder<Uint8List?>(
-  future: ThumbnailCache.generateAndCacheThumbnail(video),
-  builder: (context, snapshot) {
-                    if (snapshot.hasData && snapshot.data != null) {
-                      return ClipRRect(
-                        borderRadius: BorderRadius.circular(6),
-                        child: Image.memory(
-                          snapshot.data!,
-                          fit: BoxFit.cover,
-                          width: 56,
-                          height: 56,
-                        ),
-                      );
-                    }
+  return Row(
+    children: [
+      // Show sample duplicate videos
+      ...duplicateVideoSamples.take(3).map((video) {
+        return Expanded(
+        child: Container(
+  margin: const EdgeInsets.all(4),
+  decoration: BoxDecoration(
+    borderRadius: BorderRadius.circular(6),
+    border: Border.all(color: Colors.red.withOpacity(0.3), width: 2),
+  ),
+  child: Stack(
+    fit: StackFit.expand,
+    children: [
+      ClipRRect(
+        borderRadius: BorderRadius.circular(4),
+        child: Builder(
+          builder: (context) {
+            final imageProvider = ThumbnailCache.getCachedImageProvider('thumb_${video.id}');
+            if (imageProvider != null) {
+              return AnimatedOpacity(
+                opacity: 1.0,
+                duration: const Duration(milliseconds: 300),
+                child: Image(
+                  image: imageProvider,
+                  fit: BoxFit.cover,
+                  height: double.infinity,
+                  width: double.infinity,
+                ),
+              );
+            } else {
+              return FutureBuilder<Uint8List?>(
+                future: ThumbnailCache.getThumbnail('thumb_${video.id}'),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
                     return Container(
-                      decoration: BoxDecoration(
-                        color: Colors.grey[300],
-                        borderRadius: BorderRadius.circular(6),
+                      color: Colors.grey[200],
+                      child: const Center(
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.red),
+                          ),
+                        ),
                       ),
                     );
-                  },
-                ),
-                Positioned(
-                  bottom: 2,
-                  right: 2,
-                  child: Container(
-                    padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.7),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      '${video.duration}s',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 8,
-                        fontWeight: FontWeight.bold,
+                  } else if (snapshot.hasData && snapshot.data != null) {
+                    return AnimatedOpacity(
+                      opacity: 1.0,
+                      duration: const Duration(milliseconds: 300),
+                      child: Image.memory(
+                        snapshot.data!,
+                        fit: BoxFit.cover,
+                        height: double.infinity,
+                        width: double.infinity,
+                        cacheWidth: 200,
                       ),
-                    ),
-                  ),
-                ),
-                Center(
-                  child: Icon(
-                    Icons.play_circle_outline,
-                    color: Colors.white.withOpacity(0.8),
-                    size: 24,
-                  ),
-                ),
-              ],
+                    );
+                  } else {
+                    return Container(
+                      color: Colors.grey[300],
+                      child: const Center(
+                        child: Icon(Icons.videocam, color: Colors.grey),
+                      ),
+                    );
+                  }
+                },
+              );
+            }
+          },
+        ),
+      ),
+      // Duration indicator (keep as is)
+      Positioned(
+        bottom: 4,
+        right: 4,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.7),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Text(
+            '${video.duration}s',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
             ),
           ),
-        ).toList(),
-        
-        // Show count if more videos
-        if (duplicateVideosCount > 3)
-          Container(
-            width: 60,
-            height: 60,
+        ),
+      ),
+      // Play icon (keep as is)
+      Center(
+        child: Container(
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.5),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.play_arrow,
+            color: Colors.white,
+            size: 20,
+          ),
+        ),
+      ),
+    ],
+  ),
+)
+,
+        );
+      }).toList(),
+
+      // Fill remaining space if less than 3 duplicate videos (keep as is)
+      ...List.generate(
+        3 - duplicateVideoSamples.length,
+        (index) => Expanded(
+          child: Container(
+            margin: const EdgeInsets.all(4),
             decoration: BoxDecoration(
-              color: Colors.red.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.red.withOpacity(0.3)),
-            ),
-            child: Center(
-              child: Text(
-                '+${duplicateVideosCount - 3}',
-                style: const TextStyle(
-                  color: Colors.red,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 12,
-                ),
-              ),
+              color: Colors.grey[200],
+              borderRadius: BorderRadius.circular(6),
             ),
           ),
-      ],
-    ),
+        ),
+      ),
+    ],
   );
 }
 

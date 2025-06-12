@@ -5,6 +5,9 @@ import 'package:photo_manager/photo_manager.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 import 'dart:io';
+import 'package:flutter/material.dart';
+import 'dart:io';
+import '../models/video.dart';
 
 class ThumbnailCache {
   static final _cache = <String, Uint8List>{};
@@ -47,7 +50,26 @@ class ThumbnailCache {
     
     return null;
   }
-  
+  static ImageProvider? getCachedImageProvider(String cacheKey) {
+  if (_cache.containsKey(cacheKey)) {
+    return MemoryImage(_cache[cacheKey]!);
+  }
+  return null;
+}
+
+static Future<ImageProvider?> getImageProvider(AssetEntity asset) async {
+  try {
+    final file = await asset.file;
+    if (file != null) {
+      return FileImage(file);
+    }
+  } catch (e) {
+    print('Error getting image provider: $e');
+  }
+  return null;
+}
+
+
   // Get thumbnail from cache only
   static Future<Uint8List?> getThumbnail(String cacheKey) async {
     return _cache[cacheKey];
