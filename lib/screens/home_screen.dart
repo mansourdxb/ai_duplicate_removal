@@ -16,6 +16,7 @@ import 'dart:math' as math;
 import '../screens/blurry_photos_screen.dart';
 import 'package:flutter/foundation.dart';
 import '../screens/photos_screen.dart';  // Add this import
+import 'videos_screen.dart'; // Add this import
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -611,9 +612,13 @@ Widget _buildAnalysisCards() {
                     title: 'Videos',
                     subtitle: '106 Videos to c...',
                     onTap: () {
-                      // Navigate to Videos screen
-                      // You can add navigation to videos_screen.dart here when ready
-                    },
+  print('Video section tapped');
+  Navigator.push(
+    context,
+    MaterialPageRoute(builder: (context) => VideosScreen()),
+  );
+}
+,
                   ),
                 ),
               ],
